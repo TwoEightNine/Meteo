@@ -1,3 +1,7 @@
+#include "meteo_config.h"
+
+#if !METEO_DISPLAY_ONLY
+
 #include "main_screen.h"
 
 #define GRAY 0x8c71
@@ -12,7 +16,7 @@
 #define TOP_TILE_W 160
 #define BOTTOM_TILE_W 120
 
-MainScreen::MainScreen(SensorsProvider *sensorsProvider, Arduino_GFX *tft) {
+MainScreen::MainScreen(SensorsProvider *sensorsProvider, MeteoDisplay *tft) {
     this->sensorsProvider = sensorsProvider;
     this->tft = tft;
     drawFrame();
@@ -394,3 +398,5 @@ void MainScreen::printDashes() {
     tft->print('-');
     tft->print('-');
 }
+
+#endif

@@ -1,10 +1,12 @@
+#include "meteo_config.h"
+
+#if !METEO_DISPLAY_ONLY
+
 #include "screen.h"
 #include "sensors.h"
 
-#include <Arduino_GFX_Library.h>
+#include "meteo_display.h"
 
-#define SCREEN_BLACK 0x0000
-#define SCREEN_WHITE 0xffff
 
 #define MODE_TEMP_INT 0
 #define MODE_HUMIDITY 1
@@ -48,7 +50,7 @@ class MainScreen : public Screen {
 private:
     SensorsProvider *sensorsProvider;
 
-    Arduino_GFX *tft;
+    MeteoDisplay *tft;
 
     uint8_t mode = MODE_TEMP_INT;
     uint8_t quality = 100;
@@ -79,8 +81,10 @@ private:
     void printBatteryPercent(uint8_t batteryPercent, uint16_t mainColor);
 
 public:
-    MainScreen(SensorsProvider *sensorsProvider, Arduino_GFX *tft);
+    MainScreen(SensorsProvider *sensorsProvider, MeteoDisplay *tft);
 
     void loop(); 
     void onTouch(uint16_t x, uint16_t y);
 };
+
+#endif

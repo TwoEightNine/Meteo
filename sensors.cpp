@@ -1,3 +1,7 @@
+#include "meteo_config.h"
+
+#if !METEO_DISPLAY_ONLY
+
 #include "Arduino.h"
 #include "sensors.h"
 
@@ -27,9 +31,7 @@ SensorsProvider::SensorsProvider() {
         Adafruit_BMP280::STANDBY_MS_500
     );
 
-    oneWire = new OneWire(PIN_D18B20);
-    dallasTemp = new DallasTemperature(oneWire);
-    dallasTemp->begin();
+    pinMode(PIN_D18B20, INPUT_PULLUP);
 
     mhz19 = new MHZ19_uart();
     mhz19->begin(PIN_MHZ_RX, PIN_MHZ_TX);
@@ -69,21 +71,37 @@ int8_t SensorsProvider::readTempInternal() {
 }
 
 int8_t SensorsProvider::readTempExternal() {
-    uint8_t sensorSignal = digitalRead(PIN_D18B20);
+    uint8_t scratchpad[9];
 
-    if (sensorSignal) {
-        dallasTemp->requestTemperatures();
-        float c = dallasTemp->getTempCByIndex(0);
-        bool isConnected = c != DEVICE_DISCONNECTED_C;
-
-        if (isConnected) {
-            return (int8_t) getCorrectedTempExternal(c);
-        } else {
-            return TEMP_EXTERNAL_NONE;
-        }
-    } else {
+    if (!ds18b20Reset()) {
         return TEMP_EXTERNAL_NONE;
     }
+    ds18b20WriteByte(0xcc); // Skip ROM: this firmware supports one DS18B20 on the bus.
+    ds18b20WriteByte(0x44); // Convert temperature.
+    delay(750);
+
+    if (!ds18b20Reset()) {
+        return TEMP_EXTERNAL_NONE;
+    }
+    ds18b20WriteByte(0xcc);
+    ds18b20WriteByte(0xbe); // Read scratchpad.
+
+    for (uint8_t i = 0; i < 9; i++) {
+        scratchpad[i] = ds18b20ReadByte();
+    }
+
+    if (ds18b20Crc8(scratchpad, 8) != scratchpad[8]) {
+        return TEMP_EXTERNAL_NONE;
+    }
+
+    int16_t raw = (scratchpad[1] << 8) | scratchpad[0];
+    float c = raw / 16.0;
+
+    if (c < -55 || c > 125) {
+        return TEMP_EXTERNAL_NONE;
+    }
+
+    return (int8_t) getCorrectedTempExternal(c);
 }
 
 uint8_t SensorsProvider::readCo2hppm() {
@@ -122,6 +140,78 @@ uint8_t SensorsProvider::readBatteryPercent(uint16_t milliVolts) {
     return (uint8_t) round((milliVolts - BATTERY_EMPTY_MV) * 100.0 / (BATTERY_FULL_MV - BATTERY_EMPTY_MV));
 }
 
+bool SensorsProvider::ds18b20Reset() {
+    pinMode(PIN_D18B20, OUTPUT);
+    digitalWrite(PIN_D18B20, LOW);
+    delayMicroseconds(480);
+    pinMode(PIN_D18B20, INPUT_PULLUP);
+    delayMicroseconds(70);
+    bool present = digitalRead(PIN_D18B20) == LOW;
+    delayMicroseconds(410);
+    return present;
+}
+
+void SensorsProvider::ds18b20WriteBit(uint8_t bit) {
+    pinMode(PIN_D18B20, OUTPUT);
+    digitalWrite(PIN_D18B20, LOW);
+    if (bit) {
+        delayMicroseconds(6);
+        pinMode(PIN_D18B20, INPUT_PULLUP);
+        delayMicroseconds(64);
+    } else {
+        delayMicroseconds(60);
+        pinMode(PIN_D18B20, INPUT_PULLUP);
+        delayMicroseconds(10);
+    }
+}
+
+uint8_t SensorsProvider::ds18b20ReadBit() {
+    pinMode(PIN_D18B20, OUTPUT);
+    digitalWrite(PIN_D18B20, LOW);
+    delayMicroseconds(6);
+    pinMode(PIN_D18B20, INPUT_PULLUP);
+    delayMicroseconds(9);
+    uint8_t bit = digitalRead(PIN_D18B20);
+    delayMicroseconds(55);
+    return bit;
+}
+
+void SensorsProvider::ds18b20WriteByte(uint8_t value) {
+    for (uint8_t i = 0; i < 8; i++) {
+        ds18b20WriteBit(value & 0x01);
+        value >>= 1;
+    }
+}
+
+uint8_t SensorsProvider::ds18b20ReadByte() {
+    uint8_t value = 0;
+    for (uint8_t i = 0; i < 8; i++) {
+        value >>= 1;
+        if (ds18b20ReadBit()) {
+            value |= 0x80;
+        }
+    }
+    return value;
+}
+
+uint8_t SensorsProvider::ds18b20Crc8(uint8_t *data, uint8_t len) {
+    uint8_t crc = 0;
+
+    while (len--) {
+        uint8_t inByte = *data++;
+        for (uint8_t i = 0; i < 8; i++) {
+            uint8_t mix = (crc ^ inByte) & 0x01;
+            crc >>= 1;
+            if (mix) {
+                crc ^= 0x8c;
+            }
+            inByte >>= 1;
+        }
+    }
+
+    return crc;
+}
+
 float SensorsProvider::getCurrentCorrectionBase(float value) {
     uint8_t halfMinutes = (uint8_t) (millis() / 1000 / 30);
     if (halfMinutes >= 54) {
@@ -155,3 +245,5 @@ float SensorsProvider::getCorrectedTempExternal(float value) {
     }
     return value + correction; // here is plus because ds18b20 show lower values first 3 minutes
 }
+
+#endif

@@ -8,8 +8,9 @@ The UI keeps the original station structure: a compact metric strip, one large h
 
 - ESP32-C6 target board.
 - 480x320 landscape UI for the LCDWiki 3.5 inch RPi display.
-- ILI9486 TFT over SPI.
-- XPT2046 resistive touch over the shared SPI bus.
+- Incremental display-only startup mode for bring-up.
+- ILI9486 TFT over SPI through the project-local display driver.
+- XPT2046 resistive touch over the shared SPI bus, currently disabled for incremental bring-up.
 - Touch-selectable metrics:
   - internal temperature
   - humidity
@@ -40,22 +41,28 @@ The UI keeps the original station structure: a compact metric strip, one large h
 
 ### Default Wiring
 
-| Function | ESP32-C6 GPIO |
-|---|---:|
-| TFT SCK / Touch SCK | `21` |
-| TFT MOSI / Touch MOSI | `19` |
-| TFT MISO / Touch MISO | `20` |
-| TFT LCD_CS | `18` |
-| TFT DC / RS | `10` |
-| TFT RST | `11` |
-| Touch TP_CS | `3` |
-| BMP280 SDA | `23` |
-| BMP280 SCL | `22` |
-| ESP32-C6 RX from MH-Z19 TX | `16` |
-| ESP32-C6 TX to MH-Z19 RX | `17` |
-| DHT11 data | `1` |
-| DS18B20 data | `2` |
-| Battery ADC | `0` |
+The default wiring is split by board side. Display and touch use only the right-side breadboard pins, while sensors and battery measurement use the left-side breadboard pins.
+
+| Side | Function | ESP32-C6 pin |
+|---|---|---:|
+| Right | TFT SCK / Touch SCK | `8` |
+| Right | TFT MOSI / Touch MOSI | `19` |
+| Right | TFT MISO / Touch MISO | `20` |
+| Right | TFT LCD_CS | `18` |
+| Right | TFT DC / RS | `14` |
+| Right | TFT RST | `15` |
+| Right | Touch TP_CS | `9` |
+| Left | BMP280 SDA | `4` |
+| Left | BMP280 SCL | `5` |
+| Left | ESP32-C6 RX from MH-Z19 TX | `RX` |
+| Left | ESP32-C6 TX to MH-Z19 RX | `TX` |
+| Left | DHT11 data | `1` |
+| Left | DS18B20 data | `2` |
+| Left | Battery ADC | `0` |
+
+Only these physical pins are used by default: left side `TX`, `RX`, `0`-`7`; right side `8`, `9`, `14`, `15`, `18`-`20`. Left-side pins `3`, `6`, and `7` remain spare.
+
+If the selected Arduino ESP32-C6 board package does not define `TX` and `RX` symbols, the firmware falls back to GPIO `16` for the `TX` header pin and GPIO `17` for the `RX` header pin.
 
 The LCD backlight is expected to be wired permanently on. Brightness control is intentionally removed.
 
@@ -76,13 +83,17 @@ Battery percentage is a simple clamped linear estimate from `3300 mV` to `4200 m
 
 Install these Arduino libraries before compiling:
 
-- GFX Library for Arduino
-- XPT2046_Touchscreen
 - DHT sensor library / DHT Unified
 - Adafruit BMP280 Library
 - Adafruit Unified Sensor
-- OneWire
-- DallasTemperature
+
+DS18B20 support is implemented in the sketch, so the external OneWire and DallasTemperature libraries are not required.
+
+The current incremental display-only build only requires Adafruit GFX. Sensor libraries are needed again after `METEO_DISPLAY_ONLY` is set to `0` in `meteo_config.h`.
+
+Open Serial Monitor at `115200` baud during display bring-up. The sketch prints display init steps and a heartbeat every 5 seconds.
+
+The LCDWiki RPi-style ILI9486 adapter uses padded 16-bit SPI command transfers. The project-local display driver uses transfer mode `1`, which sends command/data bytes as `00,data`.
 
 Use an Arduino ESP32 core version that supports ESP32-C6.
 
@@ -91,7 +102,7 @@ Use an Arduino ESP32 core version that supports ESP32-C6.
 1. Open `meteo_touch.ino` in Arduino IDE.
 2. Select an ESP32-C6 board, such as ESP32-C6-DevKitC-1.
 3. Install the libraries listed above.
-4. Confirm the wiring constants at the top of `meteo_touch.ino` and in `sensors.h`.
+4. Confirm the display wiring in `meteo_touch.ino` and the sensor wiring in `sensors.h`.
 5. Build and upload.
 
 ## Touch Calibration

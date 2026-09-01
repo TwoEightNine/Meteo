@@ -1,3 +1,7 @@
+#include "meteo_config.h"
+
+#if !METEO_DISPLAY_ONLY
+
 #include "Arduino.h"
 #include <Wire.h>
 
@@ -7,20 +11,27 @@
 // bmp280
 #include <Adafruit_BMP280.h>
 
-// d18b20
-#include <OneWire.h>
-#include <DallasTemperature.h>
-
 // mh-z19b
 #include "MHZ19_uart.h"
 
-// pins
+// Sensor wiring uses the left-side breadboard pins.
 #define PIN_DHT 1
-#define PIN_MHZ_RX 16
-#define PIN_MHZ_TX 17
+
+#ifndef RX
+#define PIN_MHZ_RX 17
+#else
+#define PIN_MHZ_RX RX
+#endif
+
+#ifndef TX
+#define PIN_MHZ_TX 16
+#else
+#define PIN_MHZ_TX TX
+#endif
+
 #define PIN_D18B20 2
-#define PIN_I2C_SDA 23
-#define PIN_I2C_SCL 22
+#define PIN_I2C_SDA 4
+#define PIN_I2C_SCL 5
 #define PIN_BATTERY_ADC 0
 
 // sensors configs
@@ -41,10 +52,14 @@ class SensorsProvider {
 private:
     DHT_Unified *dht;
     Adafruit_BMP280 *bmp;
-    OneWire *oneWire;
-    DallasTemperature *dallasTemp;
     MHZ19_uart *mhz19;
 
+    bool ds18b20Reset();
+    void ds18b20WriteBit(uint8_t bit);
+    uint8_t ds18b20ReadBit();
+    void ds18b20WriteByte(uint8_t value);
+    uint8_t ds18b20ReadByte();
+    uint8_t ds18b20Crc8(uint8_t *data, uint8_t len);
     float getCorrectedHumidity(float value);
     float getCurrentCorrectionBase(float value);
     float getCorrectedTempInternal(float value);
@@ -60,3 +75,5 @@ public:
     uint16_t readBatteryMilliVolts();
     uint8_t readBatteryPercent(uint16_t milliVolts);
 };
+
+#endif

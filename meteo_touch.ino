@@ -1,94 +1,78 @@
-#include "main_screen.h"
+#include "meteo_display.h"
 
-#include <Arduino_GFX_Library.h>
-#include <SPI.h>
-#include <XPT2046_Touchscreen.h>
-
-// ESP32-C6 / LCDWiki 3.5" RPi Display wiring
-#define PIN_TFT_SCK 21
+#define PIN_TFT_SCK 8
 #define PIN_TFT_MOSI 19
 #define PIN_TFT_MISO 20
 #define PIN_TFT_CS 18
-#define PIN_TFT_DC 10
-#define PIN_TFT_RST 11
-#define PIN_TOUCH_CS 3
+#define PIN_TFT_DC 14
+#define PIN_TFT_RST 15
 
-// XPT2046 calibration defaults. Adjust these after first hardware touch test.
-#define TOUCH_MIN_X 300
-#define TOUCH_MAX_X 3900
-#define TOUCH_MIN_Y 300
-#define TOUCH_MAX_Y 3900
-#define TOUCH_SWAP_XY true
-#define TOUCH_INVERT_X false
-#define TOUCH_INVERT_Y true
+MeteoDisplay tft(PIN_TFT_CS, PIN_TFT_DC, PIN_TFT_RST, PIN_TFT_SCK, PIN_TFT_MOSI, PIN_TFT_MISO);
 
-Arduino_DataBus *bus;
-Arduino_GFX *tft;
-XPT2046_Touchscreen *touch;
+void drawDisplayOnlyScreen() {
+    tft.fillScreen(SCREEN_BLACK);
 
-SensorsProvider *sensorsProvider;
-MainScreen *mainScreen;
+    tft.drawRect(0, 0, tft.width(), tft.height(), SCREEN_WHITE);
+    tft.drawFastHLine(0, 64, tft.width(), SCREEN_WHITE);
+    tft.drawFastHLine(0, 256, tft.width(), SCREEN_WHITE);
 
-uint16_t mapTouchAxis(int16_t value, int16_t minValue, int16_t maxValue, uint16_t size, bool invert) {
-    value = constrain(value, minValue, maxValue);
-    long mapped = map(value, minValue, maxValue, 0, size - 1);
-    if (invert) {
-        mapped = size - 1 - mapped;
-    }
-    return (uint16_t) constrain(mapped, 0, size - 1);
-}
+    tft.fillRect(1, 1, 159, 63, 0x001f);
+    tft.fillRect(160, 1, 160, 63, 0x07e0);
+    tft.fillRect(320, 1, 159, 63, 0xf800);
+    tft.fillRect(1, 257, 119, 62, 0x07ff);
+    tft.fillRect(120, 257, 120, 62, 0xf81f);
+    tft.fillRect(240, 257, 120, 62, 0xffe0);
+    tft.fillRect(398, 274, 44, 28, 0x07e0);
 
-bool readTouchPoint(uint16_t *x, uint16_t *y) {
-    if (!touch->touched()) {
-        return false;
-    }
+    tft.setTextColor(SCREEN_WHITE);
+    tft.setTextSize(2);
+    tft.setCursor(16, 24);
+    tft.print(F("BLUE L"));
+    tft.setCursor(184, 24);
+    tft.print(F("GREEN"));
+    tft.setCursor(348, 24);
+    tft.print(F("RED R"));
 
-    TS_Point point = touch->getPoint();
-    int16_t rawX = point.x;
-    int16_t rawY = point.y;
+    tft.setTextSize(4);
+    tft.setCursor(72, 130);
+    tft.print(F("ILI9486"));
+    tft.setCursor(72, 178);
+    tft.print(F("DISPLAY OK"));
 
-    if (TOUCH_SWAP_XY) {
-        int16_t tmp = rawX;
-        rawX = rawY;
-        rawY = tmp;
-    }
-
-    *x = mapTouchAxis(rawX, TOUCH_MIN_X, TOUCH_MAX_X, tft->width(), TOUCH_INVERT_X);
-    *y = mapTouchAxis(rawY, TOUCH_MIN_Y, TOUCH_MAX_Y, tft->height(), TOUCH_INVERT_Y);
-    return true;
+    tft.setTextSize(2);
+    tft.setTextColor(0x8c71);
+    tft.setCursor(18, 280);
+    tft.print(F("480x320"));
+    tft.setCursor(142, 280);
+    tft.print(F("SPI"));
+    tft.setCursor(260, 280);
+    tft.print(F("C6"));
 }
 
 void setup() {
     Serial.begin(115200);
-    SPI.begin(PIN_TFT_SCK, PIN_TFT_MISO, PIN_TFT_MOSI);
+    delay(1500);
+    Serial.println();
+    Serial.println(F("meteo_touch: display-only bring-up"));
+    Serial.println(F("meteo_touch: pins sck=8 mosi=19 miso=20 cs=18 dc=14 rst=15"));
+    Serial.println(F("meteo_touch: display transfer mode 1, RPi 16-bit 00,data"));
 
-    bus = new Arduino_ESP32SPI(PIN_TFT_DC, PIN_TFT_CS, PIN_TFT_SCK, PIN_TFT_MOSI, PIN_TFT_MISO);
-    tft = new Arduino_ILI9486_18bit(bus, PIN_TFT_RST, 1, false);
-    tft->begin();
-    tft->setRotation(1);
-    tft->fillScreen(SCREEN_BLACK);
-
-    touch = new XPT2046_Touchscreen(PIN_TOUCH_CS);
-    touch->begin();
-
-    sensorsProvider = new SensorsProvider();
-
-    mainScreen = new MainScreen(sensorsProvider, tft);
+    tft.setTransferMode(1);
+    tft.begin();
+    tft.setRotation(1);
+    Serial.print(F("meteo_touch: display size "));
+    Serial.print(tft.width());
+    Serial.print(F("x"));
+    Serial.println(tft.height());
+    drawDisplayOnlyScreen();
+    Serial.println(F("meteo_touch: test screen drawn"));
 }
 
 void loop() {
-    mainScreen->loop();
-
-    static bool wasTouched = false;
-    uint16_t x;
-    uint16_t y;
-
-    if (readTouchPoint(&x, &y)) {
-        if (!wasTouched) {
-            mainScreen->onTouch(x, y);
-        }
-        wasTouched = true;
-    } else {
-        wasTouched = false;
+    static uint32_t lastPrint = 0;
+    if (millis() - lastPrint >= 5000) {
+        Serial.println(F("meteo_touch: running"));
+        lastPrint = millis();
     }
+    delay(1000);
 }
