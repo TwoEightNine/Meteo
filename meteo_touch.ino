@@ -20,9 +20,9 @@
 #define TOUCH_MAX_X 3900
 #define TOUCH_MIN_Y 300
 #define TOUCH_MAX_Y 3900
-#define TOUCH_SWAP_XY true
-#define TOUCH_INVERT_X false
-#define TOUCH_INVERT_Y true
+#define TOUCH_SWAP_XY false
+#define TOUCH_INVERT_X true
+#define TOUCH_INVERT_Y false
 #define TOUCH_PRESSURE_MIN 1200
 #define TOUCH_LOG_INTERVAL_MS 250
 

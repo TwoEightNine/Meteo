@@ -131,9 +131,9 @@ Touch calibration constants are defined near the top of `meteo_touch.ino`:
 #define TOUCH_MAX_X 3900
 #define TOUCH_MIN_Y 300
 #define TOUCH_MAX_Y 3900
-#define TOUCH_SWAP_XY true
-#define TOUCH_INVERT_X false
-#define TOUCH_INVERT_Y true
+#define TOUCH_SWAP_XY false
+#define TOUCH_INVERT_X true
+#define TOUCH_INVERT_Y false
 ```
 
 If touch is mirrored, rotated, or offset on your hardware, adjust only these constants first. The UI hit boxes are already defined for the 480x320 landscape layout.
