@@ -3,6 +3,7 @@
 
 #if !METEO_DISPLAY_ONLY
 #include "main_screen.h"
+#include <XPT2046_Touchscreen.h>
 #endif
 
 #define PIN_TFT_SCK 8
@@ -11,6 +12,19 @@
 #define PIN_TFT_CS 18
 #define PIN_TFT_DC 14
 #define PIN_TFT_RST 15
+#define PIN_TOUCH_CS 9
+
+// XPT2046 calibration for the 480x320 landscape display. Adjust these if the
+// panel is mirrored, rotated, or offset on a particular unit.
+#define TOUCH_MIN_X 300
+#define TOUCH_MAX_X 3900
+#define TOUCH_MIN_Y 300
+#define TOUCH_MAX_Y 3900
+#define TOUCH_SWAP_XY true
+#define TOUCH_INVERT_X false
+#define TOUCH_INVERT_Y true
+#define TOUCH_PRESSURE_MIN 1200
+#define TOUCH_LOG_INTERVAL_MS 250
 
 MeteoDisplay tft(PIN_TFT_CS, PIN_TFT_DC, PIN_TFT_RST, PIN_TFT_SCK, PIN_TFT_MOSI, PIN_TFT_MISO);
 
@@ -57,6 +71,44 @@ void drawDisplayOnlyScreen() {
 #else
 SensorsProvider *sensorsProvider;
 MainScreen *mainScreen;
+XPT2046_Touchscreen touch(PIN_TOUCH_CS);
+
+uint16_t mapTouchAxis(int16_t value, int16_t minValue, int16_t maxValue, uint16_t size, bool invert) {
+    value = constrain(value, minValue, maxValue);
+    long mapped = map(value, minValue, maxValue, 0, size - 1);
+    if (invert) {
+        mapped = size - 1 - mapped;
+    }
+    return (uint16_t) constrain(mapped, 0, size - 1);
+}
+
+bool readTouchPoint(uint16_t *x, uint16_t *y, int16_t *rawXResult, int16_t *rawYResult, int16_t *pressure) {
+    if (!touch.touched()) {
+        return false;
+    }
+
+    TS_Point point = touch.getPoint();
+    if (point.z < TOUCH_PRESSURE_MIN) {
+        return false;
+    }
+
+    int16_t rawX = point.x;
+    int16_t rawY = point.y;
+
+    *rawXResult = rawX;
+    *rawYResult = rawY;
+    *pressure = point.z;
+
+    if (TOUCH_SWAP_XY) {
+        int16_t tmp = rawX;
+        rawX = rawY;
+        rawY = tmp;
+    }
+
+    *x = mapTouchAxis(rawX, TOUCH_MIN_X, TOUCH_MAX_X, tft.width(), TOUCH_INVERT_X);
+    *y = mapTouchAxis(rawY, TOUCH_MIN_Y, TOUCH_MAX_Y, tft.height(), TOUCH_INVERT_Y);
+    return true;
+}
 #endif
 
 void setup() {
@@ -83,6 +135,9 @@ void setup() {
     sensorsProvider = new SensorsProvider();
     Serial.println(F("meteo_touch: init main screen"));
     mainScreen = new MainScreen(sensorsProvider, &tft);
+    Serial.println(F("meteo_touch: init touch"));
+    touch.begin(SPI);
+    touch.setRotation(1);
 #endif
 }
 
@@ -96,5 +151,41 @@ void loop() {
     delay(1000);
 #else
     mainScreen->loop();
+
+    static bool wasTouched = false;
+    static uint32_t lastTouchLog = 0;
+    uint16_t x;
+    uint16_t y;
+    int16_t rawX;
+    int16_t rawY;
+    int16_t pressure;
+
+    if (readTouchPoint(&x, &y, &rawX, &rawY, &pressure)) {
+        uint32_t now = millis();
+        if (!wasTouched || now - lastTouchLog >= TOUCH_LOG_INTERVAL_MS) {
+            Serial.print(F("touch: raw=("));
+            Serial.print(rawX);
+            Serial.print(F(","));
+            Serial.print(rawY);
+            Serial.print(F(") z="));
+            Serial.print(pressure);
+            Serial.print(F(" screen=("));
+            Serial.print(x);
+            Serial.print(F(","));
+            Serial.print(y);
+            Serial.println(F(")"));
+            lastTouchLog = now;
+        }
+
+        if (!wasTouched) {
+            mainScreen->onTouch(x, y);
+        }
+        wasTouched = true;
+    } else {
+        if (wasTouched) {
+            Serial.println(F("touch: released"));
+        }
+        wasTouched = false;
+    }
 #endif
 }

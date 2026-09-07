@@ -16,6 +16,17 @@
 #define TOP_TILE_W 160
 #define BOTTOM_TILE_W 120
 
+static const __FlashStringHelper *modeLabel(uint8_t value) {
+    switch (value) {
+        case MODE_TEMP_INT: return F("temp-int");
+        case MODE_HUMIDITY: return F("humidity");
+        case MODE_CO2: return F("co2");
+        case MODE_TEMP_EXT: return F("temp-ext");
+        case MODE_PRESSURE: return F("pressure");
+        default: return F("unknown");
+    }
+}
+
 MainScreen::MainScreen(SensorsProvider *sensorsProvider, MeteoDisplay *tft) {
     this->sensorsProvider = sensorsProvider;
     this->tft = tft;
@@ -104,26 +115,38 @@ void MainScreen::loop() {
 
 void MainScreen::onTouch(uint16_t x, uint16_t y) {
     uint8_t nextMode = mode;
+    bool metricTapped = false;
 
     if (y < TOP_BAR_H) {
         if (x < TOP_TILE_W) {
             nextMode = MODE_TEMP_INT;
+            metricTapped = true;
         } else if (x < TOP_TILE_W * 2) {
             nextMode = MODE_HUMIDITY;
+            metricTapped = true;
         } else {
             nextMode = MODE_CO2;
+            metricTapped = true;
         }
     } else if (y >= BOTTOM_BAR_Y) {
         if (x < BOTTOM_TILE_W) {
             nextMode = MODE_TEMP_EXT;
+            metricTapped = true;
         } else if (x < BOTTOM_TILE_W * 2) {
             nextMode = MODE_PRESSURE;
+            metricTapped = true;
         }
     }
 
     if (nextMode != mode) {
         mode = nextMode;
         modeChanged = true;
+        Serial.print(F("touch: event=select mode="));
+        Serial.println(modeLabel(mode));
+    } else if (metricTapped) {
+        Serial.println(F("touch: event=already-selected"));
+    } else {
+        Serial.println(F("touch: event=none"));
     }
 }
 

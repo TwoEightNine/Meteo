@@ -10,7 +10,7 @@ The UI keeps the original station structure: a compact metric strip, one large h
 - 480x320 landscape UI for the LCDWiki 3.5 inch RPi display.
 - Incremental display-only startup mode is available with `METEO_DISPLAY_ONLY` in `meteo_config.h`.
 - ILI9486 TFT over SPI through the project-local display driver.
-- XPT2046 resistive touch over the shared SPI bus is reserved in the wiring, but currently disabled for incremental bring-up.
+- XPT2046 resistive touch over the shared SPI bus selects the displayed metric.
 - Touch-selectable metrics:
   - internal temperature
   - humidity
@@ -100,6 +100,7 @@ Install these Arduino libraries before compiling:
 - DHT sensor library / DHT Unified
 - Adafruit BMP280 Library
 - Adafruit Unified Sensor
+- XPT2046_Touchscreen
 
 DS18B20 support is implemented in the sketch, so the external OneWire and DallasTemperature libraries are not required.
 
@@ -121,7 +122,23 @@ Use an Arduino ESP32 core version that supports ESP32-C6.
 
 ## Touch
 
-Touch wiring is reserved on GPIO `9`, but touch input is temporarily disabled while the display and sensors are brought up incrementally. The `MainScreen::onTouch()` UI hook is still present and only selects the five metric tiles; battery and quality are display-only.
+Touch input uses the XPT2046 controller on the display's shared SPI bus, with `TP_CS` on GPIO `9`. A new touch on a metric tile selects it and highlights that tile; holding the panel does not repeat the selection. The central display area, battery tile, and quality/status indicator are display-only.
+
+Touch calibration constants are defined near the top of `meteo_touch.ino`:
+
+```cpp
+#define TOUCH_MIN_X 300
+#define TOUCH_MAX_X 3900
+#define TOUCH_MIN_Y 300
+#define TOUCH_MAX_Y 3900
+#define TOUCH_SWAP_XY true
+#define TOUCH_INVERT_X false
+#define TOUCH_INVERT_Y true
+```
+
+If touch is mirrored, rotated, or offset on your hardware, adjust only these constants first. The UI hit boxes are already defined for the 480x320 landscape layout.
+
+`TOUCH_PRESSURE_MIN` filters idle noise from the touch controller. The default `1200` is set above the observed idle pressure (about `1020`); lower it only if intentional presses do not reach that threshold.
 
 ## License
 
