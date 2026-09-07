@@ -40,7 +40,7 @@ void MainScreen::drawFrame() {
 
 void MainScreen::readSensors(Sensors& result) {
     Serial.println(F("sensors read"));
-    Serial.print(F("secs"));
+    Serial.print(F("secs: "));
     Serial.println(millis() / 1000);
  
     result.humidity = this->sensorsProvider->readHumidity();
@@ -49,18 +49,24 @@ void MainScreen::readSensors(Sensors& result) {
     result.temperatureExternal = this->sensorsProvider->readTempExternal();
     result.co2hppm = this->sensorsProvider->readCo2hppm();
     result.batteryMilliVolts = this->sensorsProvider->readBatteryMilliVolts();
-    result.batteryPercent = this->sensorsProvider->readBatteryPercent(result.batteryMilliVolts);
 
-    // Serial.print(F("hum: "));
-    // Serial.println(result.humidity);
-    // Serial.print(F("ti: "));
-    // Serial.println(result.temperatureInternal);
-    // Serial.print(F("p: "));
-    // Serial.println(result.pressureMinus600);
-    // Serial.print(F("te: "));
-    // Serial.println(result.temperatureExternal);
-    // Serial.print(F("co2: "));
-    // Serial.println(result.co2hppm);
+    Serial.print(F("hum: "));
+    Serial.print(result.humidity);
+    Serial.print(F(" ti: "));
+    Serial.print(result.temperatureInternal);
+    Serial.print(F(" p: "));
+    if (result.pressureMinus600 == 0) {
+        Serial.print(F("---"));
+    } else {
+        Serial.print(result.pressureMinus600 + 600);
+    }
+    Serial.print(F(" te: "));
+    Serial.print(result.temperatureExternal);
+    Serial.print(F(" co2hppm: "));
+    Serial.print(result.co2hppm);
+    Serial.print(F(" bat: "));
+    Serial.print(result.batteryMilliVolts);
+    Serial.println(F("mV"));
 }
 
 void MainScreen::loop() {
@@ -73,7 +79,6 @@ void MainScreen::loop() {
         lastSensors.pressureMinus600 = actualSensors.pressureMinus600;
         lastSensors.temperatureExternal = actualSensors.temperatureExternal;
         lastSensors.co2hppm = actualSensors.co2hppm;
-        lastSensors.batteryPercent = actualSensors.batteryPercent;
         lastSensors.batteryMilliVolts = actualSensors.batteryMilliVolts;
 
         readSensors(actualSensors);
@@ -192,7 +197,7 @@ void MainScreen::updateSideInfo(Sensors& sensors, Sensors& prevSensors, uint8_t 
     if (prevSensors.pressureMinus600 != sensors.pressureMinus600 || forceRender) {
         drawTile(BOTTOM_TILE_W + 1, BOTTOM_BAR_Y + 1, BOTTOM_TILE_W - 1, BOTTOM_BAR_H - 2, MODE_PRESSURE, forceRender);
     }
-    if (prevSensors.batteryPercent != sensors.batteryPercent || forceRender) {
+    if (prevSensors.batteryMilliVolts != sensors.batteryMilliVolts || forceRender) {
         drawBatteryTile(BOTTOM_TILE_W * 2 + 1, BOTTOM_BAR_Y + 1, BOTTOM_TILE_W - 1, BOTTOM_BAR_H - 2, forceRender);
     }
 }
@@ -238,9 +243,7 @@ void MainScreen::drawBatteryTile(uint16_t x, uint16_t y, uint16_t w, uint16_t h,
     tft->print(F("BAT"));
     tft->setTextSize(3);
     tft->setCursor(x + 10, y + 31);
-    printBatteryPercent(actualSensors.batteryPercent, SCREEN_WHITE);
-    tft->setTextColor(GRAY);
-    tft->print('%');
+    printBatteryVoltage(actualSensors.batteryMilliVolts, SCREEN_WHITE);
 }
 
 void MainScreen::printTemp(int8_t temp, uint16_t mainColor, bool isExternal) {
@@ -302,15 +305,16 @@ void MainScreen::printPressure(uint8_t pressureMinus600, uint16_t mainColor) {
     }
 }
 
-void MainScreen::printBatteryPercent(uint8_t batteryPercent, uint16_t mainColor) {
+void MainScreen::printBatteryVoltage(uint16_t milliVolts, uint16_t mainColor) {
     tft->setTextColor(mainColor);
-    if (batteryPercent < 100) {
-        tft->print(' ');
+    uint16_t centiVolts = (milliVolts + 5) / 10;
+    tft->print(centiVolts / 100);
+    tft->print('.');
+    if (centiVolts % 100 < 10) {
+        tft->print('0');
     }
-    if (batteryPercent < 10) {
-        tft->print(' ');
-    }
-    tft->print(batteryPercent);
+    tft->print(centiVolts % 100);
+    tft->print('V');
 }
 
 uint8_t MainScreen::calculateQuality(Sensors& sensors) {

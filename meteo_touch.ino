@@ -1,4 +1,9 @@
+#include "meteo_config.h"
 #include "meteo_display.h"
+
+#if !METEO_DISPLAY_ONLY
+#include "main_screen.h"
+#endif
 
 #define PIN_TFT_SCK 8
 #define PIN_TFT_MOSI 19
@@ -9,6 +14,7 @@
 
 MeteoDisplay tft(PIN_TFT_CS, PIN_TFT_DC, PIN_TFT_RST, PIN_TFT_SCK, PIN_TFT_MOSI, PIN_TFT_MISO);
 
+#if METEO_DISPLAY_ONLY
 void drawDisplayOnlyScreen() {
     tft.fillScreen(SCREEN_BLACK);
 
@@ -48,12 +54,16 @@ void drawDisplayOnlyScreen() {
     tft.setCursor(260, 280);
     tft.print(F("C6"));
 }
+#else
+SensorsProvider *sensorsProvider;
+MainScreen *mainScreen;
+#endif
 
 void setup() {
     Serial.begin(115200);
     delay(1500);
     Serial.println();
-    Serial.println(F("meteo_touch: display-only bring-up"));
+    Serial.println(F("meteo_touch: boot"));
     Serial.println(F("meteo_touch: pins sck=8 mosi=19 miso=20 cs=18 dc=14 rst=15"));
     Serial.println(F("meteo_touch: display transfer mode 1, RPi 16-bit 00,data"));
 
@@ -64,15 +74,27 @@ void setup() {
     Serial.print(tft.width());
     Serial.print(F("x"));
     Serial.println(tft.height());
+
+#if METEO_DISPLAY_ONLY
     drawDisplayOnlyScreen();
     Serial.println(F("meteo_touch: test screen drawn"));
+#else
+    Serial.println(F("meteo_touch: init sensors"));
+    sensorsProvider = new SensorsProvider();
+    Serial.println(F("meteo_touch: init main screen"));
+    mainScreen = new MainScreen(sensorsProvider, &tft);
+#endif
 }
 
 void loop() {
+#if METEO_DISPLAY_ONLY
     static uint32_t lastPrint = 0;
     if (millis() - lastPrint >= 5000) {
         Serial.println(F("meteo_touch: running"));
         lastPrint = millis();
     }
     delay(1000);
+#else
+    mainScreen->loop();
+#endif
 }

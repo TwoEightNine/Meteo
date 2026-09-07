@@ -42,7 +42,6 @@ struct Sensors {
     uint8_t pressureMinus600; // extra over 600
     int8_t temperatureExternal;
     uint8_t co2hppm; // hecto, 10^2
-    uint8_t batteryPercent;
     uint16_t batteryMilliVolts;
 };
 
@@ -78,7 +77,7 @@ private:
     void printHumidity(uint8_t humidity, uint16_t mainColor);
     void printCo2Hppm(uint8_t co2Hppm, uint16_t mainColor);
     void printPressure(uint8_t pressureMinus600, uint16_t mainColor);
-    void printBatteryPercent(uint8_t batteryPercent, uint16_t mainColor);
+    void printBatteryVoltage(uint16_t milliVolts, uint16_t mainColor);
 
 public:
     MainScreen(SensorsProvider *sensorsProvider, MeteoDisplay *tft);

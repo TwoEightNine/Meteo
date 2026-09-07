@@ -17,19 +17,19 @@
 // Sensor wiring uses the left-side breadboard pins.
 #define PIN_DHT 1
 
-#ifndef RX
-#define PIN_MHZ_RX 17
-#else
-#define PIN_MHZ_RX RX
-#endif
+//#ifndef RX
+#define PIN_MHZ_RX 2 // was 17
+//#else
+//#define PIN_MHZ_RX RX
+//#endif
 
-#ifndef TX
-#define PIN_MHZ_TX 16
-#else
-#define PIN_MHZ_TX TX
-#endif
+//#ifndef TX
+#define PIN_MHZ_TX 3 // was 17
+//#else
+//#define PIN_MHZ_TX TX
+//#endif
 
-#define PIN_D18B20 2
+#define PIN_D18B20 6
 #define PIN_I2C_SDA 4
 #define PIN_I2C_SCL 5
 #define PIN_BATTERY_ADC 0
@@ -38,9 +38,9 @@
 #define DHTTYPE DHT11
 #define BATTERY_R_TOP 100000.0
 #define BATTERY_R_BOTTOM 100000.0
-#define BATTERY_EMPTY_MV 3300
-#define BATTERY_FULL_MV 4200
+#define BATTERY_DIVIDER_RATIO ((BATTERY_R_TOP + BATTERY_R_BOTTOM) / BATTERY_R_BOTTOM)
 #define BATTERY_SAMPLES 8
+#define DS18B20_READ_ATTEMPTS 3
 
 #define CO2_NONE 0
 #define TEMP_EXTERNAL_NONE -60
@@ -53,7 +53,14 @@ private:
     DHT_Unified *dht;
     Adafruit_BMP280 *bmp;
     MHZ19_uart *mhz19;
+    bool bmpReady = false;
+    bool ds18b20BusWasPresent = false;
+    bool ds18b20RomLogged = false;
 
+    void ds18b20DriveLow();
+    void ds18b20Release();
+    uint8_t ds18b20ReadLevel();
+    void ds18b20LogRom();
     bool ds18b20Reset();
     void ds18b20WriteBit(uint8_t bit);
     uint8_t ds18b20ReadBit();
@@ -73,7 +80,6 @@ public:
     int8_t readTempExternal();
     uint8_t readCo2hppm();
     uint16_t readBatteryMilliVolts();
-    uint8_t readBatteryPercent(uint16_t milliVolts);
 };
 
 #endif

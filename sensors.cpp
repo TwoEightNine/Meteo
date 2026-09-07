@@ -4,6 +4,11 @@
 
 #include "Arduino.h"
 #include "sensors.h"
+#include <math.h>
+
+#ifdef ARDUINO_ARCH_ESP32
+#include "driver/gpio.h"
+#endif
 
 // 54 values, 0, 0.5, 1, ... minutes
 // f(t) = A * (1 - e ^ (-(t - t0) / tau))
@@ -22,16 +27,30 @@ SensorsProvider::SensorsProvider() {
     Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
 
     bmp = new Adafruit_BMP280();
-    bmp->begin(0x76);
-    bmp->setSampling(
-        Adafruit_BMP280::MODE_NORMAL, // Режим работы
-        Adafruit_BMP280::SAMPLING_X2, // Точность изм. температуры
-        Adafruit_BMP280::SAMPLING_X16, // Точность изм. давления
-        Adafruit_BMP280::FILTER_X16, // Уровень фильтрации
-        Adafruit_BMP280::STANDBY_MS_500
-    );
+    bmpReady = bmp->begin(0x76);
+    if (!bmpReady) {
+        bmpReady = bmp->begin(0x77);
+    }
+    if (bmpReady) {
+        bmp->setSampling(
+            Adafruit_BMP280::MODE_NORMAL, // operating mode
+            Adafruit_BMP280::SAMPLING_X2, // temperature oversampling
+            Adafruit_BMP280::SAMPLING_X16, // pressure oversampling
+            Adafruit_BMP280::FILTER_X16, // filtering
+            Adafruit_BMP280::STANDBY_MS_500
+        );
+        Serial.println(F("sensor bmp280: ready"));
+    } else {
+        Serial.println(F("sensor bmp280: not found"));
+    }
 
-    pinMode(PIN_D18B20, INPUT_PULLUP);
+    Serial.print(F("sensor ds18b20: pin "));
+    Serial.println(PIN_D18B20);
+    ds18b20Release();
+    delay(2);
+    if (ds18b20ReadLevel() == LOW) {
+        Serial.println(F("sensor ds18b20: bus low at startup"));
+    }
 
     mhz19 = new MHZ19_uart();
     mhz19->begin(PIN_MHZ_RX, PIN_MHZ_TX);
@@ -46,26 +65,45 @@ SensorsProvider::SensorsProvider() {
 uint8_t SensorsProvider::readHumidity() {
     sensors_event_t event;
     dht->humidity().getEvent(&event);
+    if (isnan(event.relative_humidity)) {
+        return HUMID_NONE;
+    }
     return (uint8_t) getCorrectedHumidity(event.relative_humidity);
 }
 
 uint8_t SensorsProvider::readPressureMinus600() {
-    return (uint8_t) (round(bmp->readPressure() / 133.3) - 600);
+    if (!bmpReady) {
+        return 0;
+    }
+
+    float pressure = bmp->readPressure();
+    if (isnan(pressure) || pressure <= 0) {
+        return 0;
+    }
+
+    int16_t pressureMm = (int16_t) round(pressure / 133.3);
+    if (pressureMm <= 600 || pressureMm > 855) {
+        return 0;
+    }
+
+    return (uint8_t) (pressureMm - 600);
 }
 
 int8_t SensorsProvider::readTempInternal() {
     sensors_event_t event;
     dht->temperature().getEvent(&event);
     float temp_dht = event.temperature;
-    float temp_bmp = bmp->readTemperature();
+    float temp_bmp = bmpReady ? bmp->readTemperature() : NAN;
 
     float temp;
-    if (temp_dht != 0 && temp_bmp != 0) {
+    if (!isnan(temp_dht) && !isnan(temp_bmp)) {
         temp = (temp_dht + temp_bmp) / 2.0;
-    } else if (temp_bmp != 0) {
+    } else if (!isnan(temp_bmp)) {
         temp = temp_bmp;
-    } else {
+    } else if (!isnan(temp_dht)) {
         temp = temp_dht;
+    } else {
+        return TEMP_NONE;
     }
     return (int8_t) getCorrectedTempInternal(temp);
 }
@@ -73,35 +111,76 @@ int8_t SensorsProvider::readTempInternal() {
 int8_t SensorsProvider::readTempExternal() {
     uint8_t scratchpad[9];
 
-    if (!ds18b20Reset()) {
-        return TEMP_EXTERNAL_NONE;
-    }
-    ds18b20WriteByte(0xcc); // Skip ROM: this firmware supports one DS18B20 on the bus.
-    ds18b20WriteByte(0x44); // Convert temperature.
-    delay(750);
-
-    if (!ds18b20Reset()) {
-        return TEMP_EXTERNAL_NONE;
-    }
-    ds18b20WriteByte(0xcc);
-    ds18b20WriteByte(0xbe); // Read scratchpad.
-
-    for (uint8_t i = 0; i < 9; i++) {
-        scratchpad[i] = ds18b20ReadByte();
+    if (!ds18b20RomLogged) {
+        ds18b20LogRom();
+        ds18b20RomLogged = true;
     }
 
-    if (ds18b20Crc8(scratchpad, 8) != scratchpad[8]) {
-        return TEMP_EXTERNAL_NONE;
+    for (uint8_t attempt = 1; attempt <= DS18B20_READ_ATTEMPTS; attempt++) {
+        if (!ds18b20Reset()) {
+            Serial.println(F("sensor ds18b20: not found"));
+            return TEMP_EXTERNAL_NONE;
+        }
+        ds18b20WriteByte(0xcc); // Skip ROM: this firmware supports one DS18B20 on the bus.
+        ds18b20WriteByte(0x44); // Convert temperature.
+        delay(750);
+
+        if (!ds18b20Reset()) {
+            Serial.println(F("sensor ds18b20: lost after convert"));
+            return TEMP_EXTERNAL_NONE;
+        }
+        ds18b20WriteByte(0xcc);
+        ds18b20WriteByte(0xbe); // Read scratchpad.
+
+        for (uint8_t i = 0; i < 9; i++) {
+            scratchpad[i] = ds18b20ReadByte();
+        }
+
+        if (ds18b20Crc8(scratchpad, 8) != scratchpad[8]) {
+            bool allHigh = true;
+            bool allLow = true;
+            for (uint8_t i = 0; i < 9; i++) {
+                if (scratchpad[i] != 0xff) {
+                    allHigh = false;
+                }
+                if (scratchpad[i] != 0x00) {
+                    allLow = false;
+                }
+            }
+
+            Serial.print(F("sensor ds18b20: crc error attempt "));
+            Serial.print(attempt);
+            Serial.print(F(" data"));
+            for (uint8_t i = 0; i < 9; i++) {
+                Serial.print(' ');
+                if (scratchpad[i] < 16) {
+                    Serial.print('0');
+                }
+                Serial.print(scratchpad[i], HEX);
+            }
+            Serial.println();
+            if (allHigh) {
+                Serial.println(F("sensor ds18b20: bus stayed high while reading scratchpad"));
+            } else if (allLow) {
+                Serial.println(F("sensor ds18b20: bus stayed low while reading scratchpad"));
+            }
+            delay(20);
+            continue;
+        }
+
+        int16_t raw = (scratchpad[1] << 8) | scratchpad[0];
+        float c = raw / 16.0;
+
+        if (c < -55 || c > 125) {
+            Serial.print(F("sensor ds18b20: out of range "));
+            Serial.println(c);
+            return TEMP_EXTERNAL_NONE;
+        }
+
+        return (int8_t) getCorrectedTempExternal(c);
     }
 
-    int16_t raw = (scratchpad[1] << 8) | scratchpad[0];
-    float c = raw / 16.0;
-
-    if (c < -55 || c > 125) {
-        return TEMP_EXTERNAL_NONE;
-    }
-
-    return (int8_t) getCorrectedTempExternal(c);
+    return TEMP_EXTERNAL_NONE;
 }
 
 uint8_t SensorsProvider::readCo2hppm() {
@@ -125,54 +204,111 @@ uint16_t SensorsProvider::readBatteryMilliVolts() {
     }
 
     float pinMilliVolts = ((float) sum) / BATTERY_SAMPLES;
-    float dividerRatio = (BATTERY_R_TOP + BATTERY_R_BOTTOM) / BATTERY_R_BOTTOM;
-    return (uint16_t) round(pinMilliVolts * dividerRatio);
+    // The ADC reads the midpoint of the 100k / 100k divider, i.e. half the battery voltage.
+    return (uint16_t) round(pinMilliVolts * BATTERY_DIVIDER_RATIO);
 }
 
-uint8_t SensorsProvider::readBatteryPercent(uint16_t milliVolts) {
-    if (milliVolts <= BATTERY_EMPTY_MV) {
-        return 0;
-    }
-    if (milliVolts >= BATTERY_FULL_MV) {
-        return 100;
+void SensorsProvider::ds18b20Release() {
+#ifdef ARDUINO_ARCH_ESP32
+    gpio_set_level((gpio_num_t) PIN_D18B20, 1);
+    gpio_set_direction((gpio_num_t) PIN_D18B20, GPIO_MODE_INPUT);
+#else
+    pinMode(PIN_D18B20, INPUT);
+#endif
+}
+
+void SensorsProvider::ds18b20DriveLow() {
+#ifdef ARDUINO_ARCH_ESP32
+    gpio_set_level((gpio_num_t) PIN_D18B20, 0);
+    gpio_set_direction((gpio_num_t) PIN_D18B20, GPIO_MODE_OUTPUT_OD);
+#else
+    digitalWrite(PIN_D18B20, LOW);
+    pinMode(PIN_D18B20, OUTPUT);
+#endif
+}
+
+uint8_t SensorsProvider::ds18b20ReadLevel() {
+#ifdef ARDUINO_ARCH_ESP32
+    return gpio_get_level((gpio_num_t) PIN_D18B20) ? HIGH : LOW;
+#else
+    return digitalRead(PIN_D18B20);
+#endif
+}
+
+void SensorsProvider::ds18b20LogRom() {
+    uint8_t rom[8];
+
+    if (!ds18b20Reset()) {
+        Serial.println(F("sensor ds18b20 rom: not found"));
+        return;
     }
 
-    return (uint8_t) round((milliVolts - BATTERY_EMPTY_MV) * 100.0 / (BATTERY_FULL_MV - BATTERY_EMPTY_MV));
+    ds18b20WriteByte(0x33); // Read ROM, valid when only one device is connected.
+    for (uint8_t i = 0; i < 8; i++) {
+        rom[i] = ds18b20ReadByte();
+    }
+
+    Serial.print(F("sensor ds18b20 rom:"));
+    for (uint8_t i = 0; i < 8; i++) {
+        Serial.print(' ');
+        if (rom[i] < 16) {
+            Serial.print('0');
+        }
+        Serial.print(rom[i], HEX);
+    }
+
+    if (rom[0] == 0x28 && ds18b20Crc8(rom, 7) == rom[7]) {
+        Serial.println(F(" ok"));
+    } else {
+        Serial.println(F(" invalid"));
+    }
 }
 
 bool SensorsProvider::ds18b20Reset() {
-    pinMode(PIN_D18B20, OUTPUT);
-    digitalWrite(PIN_D18B20, LOW);
+    ds18b20Release();
+    delayMicroseconds(10);
+    if (ds18b20ReadLevel() == LOW) {
+        ds18b20BusWasPresent = false;
+        return false;
+    }
+
+    ds18b20DriveLow();
     delayMicroseconds(480);
-    pinMode(PIN_D18B20, INPUT_PULLUP);
+    ds18b20Release();
     delayMicroseconds(70);
-    bool present = digitalRead(PIN_D18B20) == LOW;
-    delayMicroseconds(410);
-    return present;
+    bool present = ds18b20ReadLevel() == LOW;
+    delayMicroseconds(240);
+    bool recovered = ds18b20ReadLevel() == HIGH;
+    delayMicroseconds(170);
+    ds18b20BusWasPresent = present && recovered;
+    return ds18b20BusWasPresent;
 }
 
 void SensorsProvider::ds18b20WriteBit(uint8_t bit) {
-    pinMode(PIN_D18B20, OUTPUT);
-    digitalWrite(PIN_D18B20, LOW);
+    noInterrupts();
+    ds18b20DriveLow();
     if (bit) {
-        delayMicroseconds(6);
-        pinMode(PIN_D18B20, INPUT_PULLUP);
-        delayMicroseconds(64);
-    } else {
-        delayMicroseconds(60);
-        pinMode(PIN_D18B20, INPUT_PULLUP);
         delayMicroseconds(10);
+        ds18b20Release();
+        interrupts();
+        delayMicroseconds(55);
+    } else {
+        delayMicroseconds(65);
+        ds18b20Release();
+        interrupts();
+        delayMicroseconds(5);
     }
 }
 
 uint8_t SensorsProvider::ds18b20ReadBit() {
-    pinMode(PIN_D18B20, OUTPUT);
-    digitalWrite(PIN_D18B20, LOW);
-    delayMicroseconds(6);
-    pinMode(PIN_D18B20, INPUT_PULLUP);
-    delayMicroseconds(9);
-    uint8_t bit = digitalRead(PIN_D18B20);
-    delayMicroseconds(55);
+    noInterrupts();
+    ds18b20DriveLow();
+    delayMicroseconds(3);
+    ds18b20Release();
+    delayMicroseconds(10);
+    uint8_t bit = ds18b20ReadLevel();
+    interrupts();
+    delayMicroseconds(53);
     return bit;
 }
 
@@ -186,9 +322,8 @@ void SensorsProvider::ds18b20WriteByte(uint8_t value) {
 uint8_t SensorsProvider::ds18b20ReadByte() {
     uint8_t value = 0;
     for (uint8_t i = 0; i < 8; i++) {
-        value >>= 1;
         if (ds18b20ReadBit()) {
-            value |= 0x80;
+            value |= (1 << i);
         }
     }
     return value;
