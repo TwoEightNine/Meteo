@@ -8,10 +8,10 @@
 
 #define PIN_TFT_SCK 8
 #define PIN_TFT_MOSI 19
-#define PIN_TFT_MISO 20
-#define PIN_TFT_CS 18
-#define PIN_TFT_DC 14
-#define PIN_TFT_RST 15
+#define PIN_TFT_MISO 15
+#define PIN_TFT_CS 14
+#define PIN_TFT_DC 20
+#define PIN_TFT_RST 18
 #define PIN_TOUCH_CS 9
 
 // XPT2046 calibration for the 480x320 landscape display. Adjust these if the
@@ -116,7 +116,7 @@ void setup() {
     delay(1500);
     Serial.println();
     Serial.println(F("meteo_touch: boot"));
-    Serial.println(F("meteo_touch: pins sck=8 mosi=19 miso=20 cs=18 dc=14 rst=15"));
+    Serial.println(F("meteo_touch: pins sck=8 mosi=19 miso=15 lcd_cs=14 dc=20 rst=18 tp_cs=9"));
     Serial.println(F("meteo_touch: display transfer mode 1, RPi 16-bit 00,data"));
 
     tft.setTransferMode(1);

@@ -47,10 +47,10 @@ The default wiring is split by board side. Display and touch use only the right-
 |---|---|---:|
 | Right | TFT SCK / Touch SCK | `8` |
 | Right | TFT MOSI / Touch MOSI | `19` |
-| Right | TFT MISO / Touch MISO | `20` |
-| Right | TFT LCD_CS | `18` |
-| Right | TFT DC / RS | `14` |
-| Right | TFT RST | `15` |
+| Right | Touch TP_SO (SPI MISO) | `15` |
+| Right | TFT LCD_CS | `14` |
+| Right | TFT DC / RS | `20` |
+| Right | TFT RST | `18` |
 | Right | Touch TP_CS | `9` |
 | Left | BMP280 SDA | `4` |
 | Left | BMP280 SCL | `5` |
@@ -122,7 +122,7 @@ Use an Arduino ESP32 core version that supports ESP32-C6.
 
 ## Touch
 
-Touch input uses the XPT2046 controller on the display's shared SPI bus, with `TP_CS` on GPIO `9`. A new touch on a metric tile selects it and highlights that tile; holding the panel does not repeat the selection. The central display area, battery tile, and quality/status indicator are display-only.
+Touch input uses the XPT2046 controller on the display's shared SPI bus, with `TP_CS` on GPIO `9` and `TP_SO` on GPIO `15`. A new touch on a metric tile selects it and highlights that tile; holding the panel does not repeat the selection. The central display area, battery tile, and quality/status indicator are display-only.
 
 Touch calibration constants are defined near the top of `meteo_touch.ino`:
 

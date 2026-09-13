@@ -49,17 +49,23 @@ void MainScreen::drawFrame() {
     tft->drawFastVLine(BOTTOM_TILE_W * 3, BOTTOM_BAR_Y + 1, BOTTOM_BAR_H - 2, GRAY);
 }
 
-void MainScreen::readSensors(Sensors& result) {
+void MainScreen::readSensors(Sensors& result, bool readStandardSensors, bool readCo2, bool readBattery) {
     Serial.println(F("sensors read"));
     Serial.print(F("secs: "));
     Serial.println(millis() / 1000);
  
-    result.humidity = this->sensorsProvider->readHumidity();
-    result.temperatureInternal = this->sensorsProvider->readTempInternal();
-    result.pressureMinus600 = this->sensorsProvider->readPressureMinus600();
-    result.temperatureExternal = this->sensorsProvider->readTempExternal();
-    result.co2hppm = this->sensorsProvider->readCo2hppm();
-    result.batteryMilliVolts = this->sensorsProvider->readBatteryMilliVolts();
+    if (readStandardSensors) {
+        result.humidity = this->sensorsProvider->readHumidity();
+        result.temperatureInternal = this->sensorsProvider->readTempInternal();
+        result.pressureMinus600 = this->sensorsProvider->readPressureMinus600();
+        result.temperatureExternal = this->sensorsProvider->readTempExternal();
+    }
+    if (readCo2) {
+        result.co2hppm = this->sensorsProvider->readCo2hppm();
+    }
+    if (readBattery) {
+        result.batteryMilliVolts = this->sensorsProvider->readBatteryMilliVolts();
+    }
 
     Serial.print(F("hum: "));
     Serial.print(result.humidity);
@@ -82,8 +88,12 @@ void MainScreen::readSensors(Sensors& result) {
 
 void MainScreen::loop() {
     bool sensorsUpdated = false;
+    unsigned long now = millis();
+    bool readStandardSensors = isFirstLaunch || now - lastSensorsPoll >= SENSOR_POLL_INTERVAL_MS;
+    bool readCo2 = isFirstLaunch || now - lastCo2Poll >= CO2_POLL_INTERVAL_MS;
+    bool readBattery = isFirstLaunch || now - lastBatteryPoll >= BATTERY_POLL_INTERVAL_MS;
 
-    if (millis() - lupdSensors >= 5000 || isFirstLaunch) {
+    if (readStandardSensors || readCo2 || readBattery) {
         
         lastSensors.humidity = actualSensors.humidity;
         lastSensors.temperatureInternal = actualSensors.temperatureInternal;
@@ -92,12 +102,23 @@ void MainScreen::loop() {
         lastSensors.co2hppm = actualSensors.co2hppm;
         lastSensors.batteryMilliVolts = actualSensors.batteryMilliVolts;
 
-        readSensors(actualSensors);
-        lupdSensors = millis();
+        readSensors(actualSensors, readStandardSensors, readCo2, readBattery);
+        unsigned long polledAt = millis();
+        if (readStandardSensors) {
+            lastSensorsPoll = polledAt;
+        }
+        if (readCo2) {
+            lastCo2Poll = polledAt;
+        }
+        if (readBattery) {
+            lastBatteryPoll = polledAt;
+        }
 
         updateSideInfo(actualSensors, lastSensors, isFirstLaunch || modeChanged);
-        quality = calculateQuality(actualSensors);
-        updateQuality();
+        if (readStandardSensors || readCo2) {
+            quality = calculateQuality(actualSensors);
+            updateQuality();
+        }
         sensorsUpdated = true;
     }
 

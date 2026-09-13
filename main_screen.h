@@ -15,6 +15,10 @@
 #define MODE_PRESSURE 4
 #define MODES_COUNT   5
 
+#define SENSOR_POLL_INTERVAL_MS 5000
+#define CO2_POLL_INTERVAL_MS 15000
+#define BATTERY_POLL_INTERVAL_MS 1000
+
 #define HUM_WARN_MIN 40
 #define HUM_WARN_MAX 60
 #define HUM_URGENT_MIN 30
@@ -56,7 +60,9 @@ private:
     uint8_t isFirstLaunch = true;
     uint8_t modeChanged = true;
 
-    unsigned long lupdSensors = 0;
+    unsigned long lastSensorsPoll = 0;
+    unsigned long lastCo2Poll = 0;
+    unsigned long lastBatteryPoll = 0;
 
     Sensors lastSensors = {};
     Sensors actualSensors = {};
@@ -64,7 +70,7 @@ private:
     void drawFrame();
     void updateMainInfo(Sensors& sensors, Sensors& prevSensors, uint8_t forceRender);
     void updateSideInfo(Sensors& sensors, Sensors& prevSensors, uint8_t forceRender);
-    void readSensors(Sensors& result);
+    void readSensors(Sensors& result, bool readStandardSensors, bool readCo2, bool readBattery);
     void updateQuality();
     void drawTile(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t tileMode, uint8_t forceRender);
     void drawBatteryTile(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t forceRender);
