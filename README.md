@@ -52,17 +52,15 @@ The default wiring is split by board side. Display and touch use only the right-
 | Right | TFT DC / RS | `20` |
 | Right | TFT RST | `18` |
 | Right | Touch TP_CS | `9` |
-| Left | BMP280 SDA | `4` |
-| Left | BMP280 SCL | `5` |
-| Left | ESP32-C6 RX from MH-Z19 TX | `RX` |
-| Left | ESP32-C6 TX to MH-Z19 RX | `TX` |
-| Left | DHT11 data | `1` |
+| Left | BMP280 SDA | `2` |
+| Left | BMP280 SCL | `1` |
+| Left | DHT11 data | `3` |
+| Left | ESP32-C6 RX from MH-Z19 TX | `4` |
+| Left | ESP32-C6 TX to MH-Z19 RX | `5` |
 | Left | DS18B20 data | `6` |
-| Left | Battery ADC | `0` |
+| Left | Battery ADC | `7` |
 
-Only these physical pins are used by default: left side `TX`, `RX`, `0`-`7`; right side `8`, `9`, `14`, `15`, `18`-`20`. Left-side pins `2`, `3`, and `7` remain spare.
-
-If the selected Arduino ESP32-C6 board package does not define `TX` and `RX` symbols, the firmware falls back to GPIO `16` for the `TX` header pin and GPIO `17` for the `RX` header pin.
+The default wiring uses left-side GPIO `1`-`7` and right-side GPIO `8`, `9`, `14`, `15`, `18`-`20`. Left-side GPIO `0` and the `TX` and `RX` header pins remain spare. The MH-Z19 UART connections are crossed: sensor `TX` goes to ESP32-C6 GPIO `4` (RX), and sensor `RX` goes to ESP32-C6 GPIO `5` (TX).
 
 The LCD backlight is expected to be wired permanently on. Brightness control is intentionally removed.
 
@@ -83,7 +81,7 @@ If Serial Monitor shows `sensor ds18b20: crc error` with `FF FF FF FF FF FF FF F
 
 ## Battery Measurement
 
-The default firmware assumes a single-cell Li-ion or LiPo battery measured through a resistor divider:
+The default firmware assumes a single-cell Li-ion or LiPo battery measured on GPIO `7` through a resistor divider:
 
 - Top resistor: `100k`
 - Bottom resistor: `100k`
@@ -97,12 +95,11 @@ The UI displays the raw battery voltage with two decimal places (for example, `4
 
 Install these Arduino libraries before compiling:
 
-- DHT sensor library / DHT Unified
 - Adafruit BMP280 Library
 - Adafruit Unified Sensor
 - XPT2046_Touchscreen
 
-DS18B20 support is implemented in the sketch, so the external OneWire and DallasTemperature libraries are not required.
+The DHT11 and DS18B20 readers are implemented in the sketch, so the external DHT, OneWire, and DallasTemperature libraries are not required. The DHT11 reader uses bounded timing checks and safely reports no reading when the sensor is disconnected.
 
 The default build uses the real sensor UI and requires Adafruit GFX plus the listed sensor libraries. Set `METEO_DISPLAY_ONLY` to `1` in `meteo_config.h` to return to the display-only test screen.
 

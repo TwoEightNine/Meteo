@@ -5,9 +5,6 @@
 #include "Arduino.h"
 #include <Wire.h>
 
-// dht11
-#include <DHT_U.h>
-
 // bmp280
 #include <Adafruit_BMP280.h>
 
@@ -15,27 +12,15 @@
 #include "MHZ19_uart.h"
 
 // Sensor wiring uses the left-side breadboard pins.
-#define PIN_DHT 1
-
-//#ifndef RX
-#define PIN_MHZ_RX 2 // was 17
-//#else
-//#define PIN_MHZ_RX RX
-//#endif
-
-//#ifndef TX
-#define PIN_MHZ_TX 3 // was 17
-//#else
-//#define PIN_MHZ_TX TX
-//#endif
-
+#define PIN_I2C_SCL 1
+#define PIN_I2C_SDA 2
+#define PIN_DHT 3
+#define PIN_MHZ_RX 4
+#define PIN_MHZ_TX 5
 #define PIN_D18B20 6
-#define PIN_I2C_SDA 4
-#define PIN_I2C_SCL 5
-#define PIN_BATTERY_ADC 0
+#define PIN_BATTERY_ADC 7
 
 // sensors configs
-#define DHTTYPE DHT11
 #define BATTERY_R_TOP 100000.0
 #define BATTERY_R_BOTTOM 100000.0
 #define BATTERY_DIVIDER_RATIO ((BATTERY_R_TOP + BATTERY_R_BOTTOM) / BATTERY_R_BOTTOM)
@@ -50,13 +35,18 @@
 class SensorsProvider {
 
 private:
-    DHT_Unified *dht;
     Adafruit_BMP280 *bmp;
     MHZ19_uart *mhz19;
     bool bmpReady = false;
     bool ds18b20BusWasPresent = false;
     bool ds18b20RomLogged = false;
+    uint32_t dhtLastAttemptAt = 0;
+    bool dhtLastReadValid = false;
+    float dhtLastHumidity = 0;
+    float dhtLastTemperature = 0;
 
+    bool readDht11(float *humidity, float *temperature);
+    bool waitForDhtLevel(uint8_t level, uint32_t timeoutUs);
     void ds18b20DriveLow();
     void ds18b20Release();
     uint8_t ds18b20ReadLevel();

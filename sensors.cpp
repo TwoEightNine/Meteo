@@ -21,8 +21,9 @@ float approxDeviation[] = {
 };
 
 SensorsProvider::SensorsProvider() {
-    dht = new DHT_Unified(PIN_DHT, DHTTYPE);
-    dht->begin();
+    // The DHT11 data pin is idle high.  INPUT_PULLUP also makes an absent
+    // sensor deterministic rather than leaving GPIO3 floating.
+    pinMode(PIN_DHT, INPUT_PULLUP);
 
     Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
 
@@ -63,12 +64,12 @@ SensorsProvider::SensorsProvider() {
 }
 
 uint8_t SensorsProvider::readHumidity() {
-    sensors_event_t event;
-    dht->humidity().getEvent(&event);
-    if (isnan(event.relative_humidity)) {
+    float humidity;
+    float temperature;
+    if (!readDht11(&humidity, &temperature)) {
         return HUMID_NONE;
     }
-    return (uint8_t) getCorrectedHumidity(event.relative_humidity);
+    return (uint8_t) getCorrectedHumidity(humidity);
 }
 
 uint8_t SensorsProvider::readPressureMinus600() {
@@ -90,9 +91,11 @@ uint8_t SensorsProvider::readPressureMinus600() {
 }
 
 int8_t SensorsProvider::readTempInternal() {
-    sensors_event_t event;
-    dht->temperature().getEvent(&event);
-    float temp_dht = event.temperature;
+    float humidity;
+    float temp_dht;
+    if (!readDht11(&humidity, &temp_dht)) {
+        temp_dht = NAN;
+    }
     float temp_bmp = bmpReady ? bmp->readTemperature() : NAN;
 
     float temp;
@@ -106,6 +109,87 @@ int8_t SensorsProvider::readTempInternal() {
         return TEMP_NONE;
     }
     return (int8_t) getCorrectedTempInternal(temp);
+}
+
+bool SensorsProvider::waitForDhtLevel(uint8_t level, uint32_t timeoutUs) {
+    uint32_t startedAt = micros();
+    while (digitalRead(PIN_DHT) != level) {
+        if ((uint32_t) (micros() - startedAt) >= timeoutUs) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool SensorsProvider::readDht11(float *humidity, float *temperature) {
+    const uint32_t DHT_MIN_INTERVAL_MS = 2000;
+    const uint32_t DHT_RESPONSE_TIMEOUT_US = 150;
+    const uint32_t DHT_BIT_TIMEOUT_US = 120;
+    const uint32_t DHT_ONE_PULSE_US = 50;
+
+    uint32_t now = millis();
+    if (now - dhtLastAttemptAt < DHT_MIN_INTERVAL_MS) {
+        if (dhtLastReadValid) {
+            *humidity = dhtLastHumidity;
+            *temperature = dhtLastTemperature;
+        }
+        return dhtLastReadValid;
+    }
+
+    // Record the attempt before touching the wire, so a missing sensor is not
+    // retried immediately by readTempInternal() after readHumidity().
+    dhtLastAttemptAt = now;
+    dhtLastReadValid = false;
+
+    // DHT11 start signal: low for at least 18 ms, then release the bus.
+    pinMode(PIN_DHT, OUTPUT);
+    digitalWrite(PIN_DHT, LOW);
+    delay(20);
+    digitalWrite(PIN_DHT, HIGH);
+    delayMicroseconds(40);
+    pinMode(PIN_DHT, INPUT_PULLUP);
+
+    // Sensor response: 80 us low, 80 us high, then the first data low pulse.
+    // Unlike the Adafruit DHT implementation, no interrupts are disabled here.
+    // An unplugged DHT11 therefore exits after the first bounded timeout.
+    if (!waitForDhtLevel(LOW, DHT_RESPONSE_TIMEOUT_US) ||
+        !waitForDhtLevel(HIGH, DHT_RESPONSE_TIMEOUT_US) ||
+        !waitForDhtLevel(LOW, DHT_RESPONSE_TIMEOUT_US)) {
+        return false;
+    }
+
+    uint8_t data[5] = {};
+    for (uint8_t bitIndex = 0; bitIndex < 40; bitIndex++) {
+        if (!waitForDhtLevel(HIGH, DHT_BIT_TIMEOUT_US)) {
+            return false;
+        }
+
+        uint32_t highStartedAt = micros();
+        if (!waitForDhtLevel(LOW, DHT_BIT_TIMEOUT_US)) {
+            return false;
+        }
+
+        if ((uint32_t) (micros() - highStartedAt) > DHT_ONE_PULSE_US) {
+            data[bitIndex / 8] |= 1 << (7 - (bitIndex % 8));
+        }
+    }
+
+    if (((uint8_t) (data[0] + data[1] + data[2] + data[3])) != data[4]) {
+        return false;
+    }
+
+    // DHT11 reports integer humidity and temperature in the first and third
+    // data bytes.  Reject values outside the sensor's documented range.
+    if (data[0] > 100 || data[2] > 50) {
+        return false;
+    }
+
+    dhtLastHumidity = data[0];
+    dhtLastTemperature = data[2];
+    dhtLastReadValid = true;
+    *humidity = dhtLastHumidity;
+    *temperature = dhtLastTemperature;
+    return true;
 }
 
 int8_t SensorsProvider::readTempExternal() {
