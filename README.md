@@ -59,9 +59,9 @@ The default wiring is split by board side. Display and touch use only the right-
 | Left | ESP32-C6 RX from MH-Z19 TX | `4` |
 | Left | ESP32-C6 TX to MH-Z19 RX | `5` |
 | Left | DS18B20 data | `6` |
-| Left | Battery ADC | `7` |
+| Left | Battery ADC | `0` |
 
-The default wiring uses left-side GPIO `1`-`7` and right-side GPIO `8`, `9`, `14`, `15`, `18`-`20`. Left-side GPIO `0` and the `TX` and `RX` header pins remain spare. The MH-Z19 UART connections are crossed: sensor `TX` goes to ESP32-C6 GPIO `4` (RX), and sensor `RX` goes to ESP32-C6 GPIO `5` (TX).
+The default wiring uses left-side GPIO `0`-`6` and right-side GPIO `8`, `9`, `14`, `15`, `18`-`20`. Left-side GPIO `7` and the `TX` and `RX` header pins remain spare. The MH-Z19 UART connections are crossed: sensor `TX` goes to ESP32-C6 GPIO `4` (RX), and sensor `RX` goes to ESP32-C6 GPIO `5` (TX).
 
 The LCD backlight is expected to be wired permanently on. Brightness control is intentionally removed.
 
@@ -82,7 +82,7 @@ If Serial Monitor shows `sensor ds18b20: crc error` with `FF FF FF FF FF FF FF F
 
 ## Battery Measurement
 
-The default firmware assumes a single-cell Li-ion or LiPo battery measured on GPIO `7` through a resistor divider:
+The default firmware assumes a single-cell Li-ion or LiPo battery measured on GPIO `0` through a resistor divider:
 
 - Top resistor: `100k`
 - Bottom resistor: `100k`

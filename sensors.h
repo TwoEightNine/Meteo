@@ -18,7 +18,7 @@
 #define PIN_MHZ_RX 4
 #define PIN_MHZ_TX 5
 #define PIN_D18B20 6
-#define PIN_BATTERY_ADC 7
+#define PIN_BATTERY_ADC 0
 
 // sensors configs
 #define BATTERY_R_TOP 100000.0
