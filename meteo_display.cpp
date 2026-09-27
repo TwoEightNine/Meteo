@@ -201,6 +201,19 @@ void MeteoDisplay::fillScreen(uint16_t color) {
     fillRect(0, 0, width(), height(), color);
 }
 
+void MeteoDisplay::drawRGB565Row(int16_t x, int16_t y, const uint16_t *pixels, int16_t w) {
+    if (w <= 0 || x < 0 || y < 0 || x + w > width() || y >= height()) {
+        return;
+    }
+
+    setAddressWindow(x, y, w, 1);
+    select();
+    for (int16_t i = 0; i < w; ++i) {
+        write16(pixels[i]);
+    }
+    deselect();
+}
+
 void MeteoDisplay::select() {
     SPI.beginTransaction(SPISettings(DISPLAY_SPI_FREQUENCY, MSBFIRST, SPI_MODE0));
     digitalWrite(cs, LOW);

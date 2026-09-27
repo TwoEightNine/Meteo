@@ -267,10 +267,10 @@ int8_t SensorsProvider::readTempExternal() {
     return TEMP_EXTERNAL_NONE;
 }
 
-uint8_t SensorsProvider::readCo2hppm() {
+uint16_t SensorsProvider::readCo2ppm() {
     int ppm = mhz19->getCO2PPM();
     if (ppm > CO2_NONE) {
-        return (uint8_t) round(ppm / 100); 
+        return (uint16_t) ppm;
     } else {
         return CO2_NONE;
     }

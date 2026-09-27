@@ -68,7 +68,7 @@ public:
     int8_t readTempInternal();
     uint8_t readPressureMinus600();
     int8_t readTempExternal();
-    uint8_t readCo2hppm();
+    uint16_t readCo2ppm();
     uint16_t readBatteryMilliVolts();
 };
 

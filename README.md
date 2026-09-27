@@ -2,29 +2,29 @@
 
 Arduino meteo station firmware for an ESP32-C6, a 3.5 inch ILI9486 SPI TFT with XPT2046 resistive touch, and indoor climate sensors.
 
-The sensor UI keeps the original station structure: a compact metric strip, one large highlighted metric, a secondary metric strip, an air-quality indicator, and an always-visible battery level. There are no physical buttons and no firmware brightness control. Touch calibration mode is currently enabled for measuring the panel.
+The sensor UI uses a dark 480x320 instrument layout: a large focused metric on the left, four touch-selectable metrics on the right, a thin color-coded status line, and one battery indicator in the top-right corner. There are no physical buttons and no firmware brightness control.
 
 ## Features
 
 - ESP32-C6 target board.
 - 480x320 landscape UI for the LCDWiki 3.5 inch RPi display.
 - Incremental display-only startup mode is available with `METEO_DISPLAY_ONLY` in `meteo_config.h`.
-- Nine-point touch calibration is available with `METEO_TOUCH_CALIBRATION` in `meteo_config.h` and is enabled by default for touch bring-up.
+- Nine-point touch calibration is available with `METEO_TOUCH_CALIBRATION` in `meteo_config.h`; normal sensor mode is currently enabled.
 - ILI9486 TFT over SPI through the project-local display driver.
 - XPT2046 resistive touch over the shared SPI bus supports calibration, or selects the displayed metric in sensor mode.
-- Touch-selectable metrics:
+- Touch-selectable metrics, all visible at once:
   - internal temperature
   - humidity
   - CO2
   - external temperature
   - pressure
-- Always-visible, non-clickable battery voltage.
+- Always-visible, non-clickable battery percentage.
 - Sensors:
   - MH-Z19 CO2 sensor
   - DHT11 temperature and humidity sensor
   - BMP280 pressure and temperature sensor
   - optional DS18B20 external temperature sensor
-- Air-quality indicator based on humidity, pressure, and CO2 thresholds.
+- Green/yellow/red status line based on the existing humidity, pressure, and CO2 quality thresholds.
 
 ## Hardware
 
@@ -90,7 +90,7 @@ The default firmware assumes a single-cell Li-ion or LiPo battery measured on GP
 The divider output must never exceed the ESP32-C6 ADC input range. With the default `100k / 100k` divider, a `4.2 V` cell is presented to the ADC as about `2.1 V`.
 The firmware converts the measured ADC voltage back to battery voltage by multiplying it by `2`.
 
-The UI displays the raw battery voltage with two decimal places (for example, `4.20V`).
+The UI estimates battery percentage linearly from the measured voltage: `3.35 V` is `0%`, `3.90 V` is `100%`, and values outside that range are clamped. The battery icon and percentage appear only in the header.
 
 ## Software Dependencies
 
@@ -102,7 +102,7 @@ Install these Arduino libraries before compiling:
 
 The DHT11 and DS18B20 readers are implemented in the sketch, so the external DHT, OneWire, and DallasTemperature libraries are not required. The DHT11 reader uses bounded timing checks and safely reports no reading when the sensor is disconnected.
 
-The current build starts in touch calibration mode and requires Adafruit GFX and XPT2046_Touchscreen. Set `METEO_TOUCH_CALIBRATION` to `0` in `meteo_config.h` to run the sensor UI, which also requires the sensor libraries listed above. Set `METEO_DISPLAY_ONLY` to `1` to show the display-only test screen instead; that setting takes precedence over calibration mode.
+The current build starts in sensor mode and requires Adafruit GFX, XPT2046_Touchscreen, and the sensor libraries listed above. Set `METEO_TOUCH_CALIBRATION` to `1` in `meteo_config.h` for touch calibration, or `METEO_DISPLAY_ONLY` to `1` for the display-only test screen; display-only mode takes precedence.
 
 Open Serial Monitor at `115200` baud during display bring-up. The sketch prints display init steps and touch coordinates; the display-only test mode also prints a heartbeat every 5 seconds.
 
@@ -122,7 +122,11 @@ Use an Arduino ESP32 core version that supports ESP32-C6.
 
 Touch input uses the XPT2046 controller on the display's shared SPI bus, with `TP_CS` on GPIO `9` and `TP_SO` on GPIO `15`. Open Serial Monitor at `115200` baud before calibrating. Calibration mode shows nine crosshairs in this order: top-left, top-right, bottom-right, bottom-left, top, right, bottom, left, and center. Tap each crosshair, hold briefly, then release before tapping the next one. After the ninth release, look for the `TOUCH CALIBRATION RESULTS - 9 POINTS` banner in Serial Monitor. The report contains all raw coordinates and pressures, a clearly marked block of seven `TOUCH_*` definitions to copy, and the largest fit error. It repeats every 15 seconds; you can also send `P` in Serial Monitor to print it immediately. Reset the board to repeat the calibration sequence. Keep the same `touch.setRotation(1)` setting when using those definitions.
 
-In sensor mode, a new touch on a metric tile selects it and highlights that tile; holding the panel does not repeat the selection. The central display area, battery tile, and quality/status indicator are display-only in sensor mode.
+In sensor mode, the left half initially focuses inside temperature. The four right-hand rows always show outside temperature, pressure, CO2, and humidity in that order. Tapping a row shows that metric in the large left panel while the right-hand rows stay fixed. Tapping the large left panel returns the focus to inside temperature. Holding the panel does not repeat the selection; the header is display-only.
+
+The display uses whole-degree temperatures, integer humidity, raw CO2 ppm, and integer mmHg pressure. The black instrument layout has a wide chamfered focus panel, four narrower independently bordered metric cards, and a compact battery header. The focused metric's unit is aligned against the right side of the large panel. Every displayed number, label, unit, border, and decorative line uses RGB565 antialiasing. The top status line is green, yellow, or red, with no status text. Colors and panel coordinates are near the top of `main_screen.cpp`.
+
+The four-bit coverage fonts in `smooth_digits.h` and `smooth_text.h` are generated from the repository's `font.otf` and stored in flash, so no font library is needed at runtime. The generator accepts either TTF or OTF input. With Pillow installed, run `python3 tools/generate_smooth_digits.py` to rebuild from `font.otf`, or pass another font path as the first argument. Use `--size 166` to change the focus digit source size. Check the source font's license before distributing its generated bitmap data.
 
 Touch calibration constants are defined near the top of `meteo_touch.ino`:
 
