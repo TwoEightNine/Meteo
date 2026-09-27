@@ -15,9 +15,12 @@
 #define MODE_PRESSURE 4
 #define MODES_COUNT   5
 
-#define SENSOR_POLL_INTERVAL_MS 5000
-#define CO2_POLL_INTERVAL_MS 15000
-#define BATTERY_POLL_INTERVAL_MS 1000
+#define STANDARD_SENSORS_POLL_INTERVAL_MS 15000
+#define EXTERNAL_TEMP_NEAR_POLL_INTERVAL_MS 15000
+#define EXTERNAL_TEMP_FAR_POLL_INTERVAL_MS 1000
+#define EXTERNAL_TEMP_DIFFERENCE_THRESHOLD_C 5
+#define CO2_POLL_INTERVAL_MS 60000
+#define BATTERY_POLL_INTERVAL_MS 5000
 
 #define HUM_WARN_MIN 40
 #define HUM_WARN_MAX 60
@@ -72,7 +75,8 @@ private:
     TextRect valueBounds[5] = {};
     TextRect unitBounds[5] = {};
 
-    unsigned long lastSensorsPoll = 0;
+    unsigned long lastStandardSensorsPoll = 0;
+    unsigned long lastExternalTempPoll = 0;
     unsigned long lastCo2Poll = 0;
     unsigned long lastBatteryPoll = 0;
 
@@ -90,7 +94,8 @@ private:
     TextRect drawUnit(uint8_t sensorMode, int16_t x, int16_t y, bool focus);
     void formatValue(uint8_t sensorMode, char *buffer, size_t bufferSize);
     bool sensorChanged(uint8_t sensorMode, const Sensors& previous) const;
-    void readSensors(Sensors& result, bool readStandardSensors, bool readCo2, bool readBattery);
+    void readSensors(Sensors& result, bool readStandardSensors,
+                     bool readExternalTemp, bool readCo2, bool readBattery);
     void updateQuality();
     uint8_t calculateQuality(Sensors& sensors);
     uint8_t getWarningRank(uint16_t warnMin, uint16_t urgentMin, uint16_t warnMax, uint16_t urgentMax, uint16_t value);

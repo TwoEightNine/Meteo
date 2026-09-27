@@ -568,8 +568,14 @@ void MainScreen::drawBattery() {
 }
 
 void MainScreen::readSensors(Sensors& result, bool readStandardSensors,
-                             bool readCo2, bool readBattery) {
-    Serial.println(F("sensors read"));
+                             bool readExternalTemp, bool readCo2,
+                             bool readBattery) {
+    Serial.print(F("sensors read:"));
+    if (readStandardSensors) Serial.print(F(" standard"));
+    if (readExternalTemp) Serial.print(F(" external-temp"));
+    if (readCo2) Serial.print(F(" co2"));
+    if (readBattery) Serial.print(F(" voltage"));
+    Serial.println();
     Serial.print(F("secs: "));
     Serial.println(millis() / 1000);
 
@@ -577,6 +583,8 @@ void MainScreen::readSensors(Sensors& result, bool readStandardSensors,
         result.humidity = sensorsProvider->readHumidity();
         result.temperatureInternal = sensorsProvider->readTempInternal();
         result.pressureMinus600 = sensorsProvider->readPressureMinus600();
+    }
+    if (readExternalTemp) {
         result.temperatureExternal = sensorsProvider->readTempExternal();
     }
     if (readCo2) {
@@ -607,15 +615,32 @@ void MainScreen::readSensors(Sensors& result, bool readStandardSensors,
 
 void MainScreen::loop() {
     unsigned long now = millis();
-    bool readStandardSensors = isFirstLaunch || now - lastSensorsPoll >= SENSOR_POLL_INTERVAL_MS;
+    bool temperaturesValid = actualSensors.temperatureInternal > 0 &&
+                             actualSensors.temperatureInternal < 100 &&
+                             actualSensors.temperatureExternal != TEMP_EXTERNAL_NONE;
+    int16_t temperatureDifference = (int16_t) actualSensors.temperatureInternal -
+                                    (int16_t) actualSensors.temperatureExternal;
+    bool temperaturesFarApart = temperaturesValid &&
+                                (temperatureDifference <= -EXTERNAL_TEMP_DIFFERENCE_THRESHOLD_C ||
+                                 temperatureDifference >= EXTERNAL_TEMP_DIFFERENCE_THRESHOLD_C);
+    unsigned long externalTempPollInterval = temperaturesFarApart
+        ? EXTERNAL_TEMP_FAR_POLL_INTERVAL_MS
+        : EXTERNAL_TEMP_NEAR_POLL_INTERVAL_MS;
+
+    bool readStandardSensors = isFirstLaunch ||
+        now - lastStandardSensorsPoll >= STANDARD_SENSORS_POLL_INTERVAL_MS;
+    bool readExternalTemp = isFirstLaunch ||
+        now - lastExternalTempPoll >= externalTempPollInterval;
     bool readCo2 = isFirstLaunch || now - lastCo2Poll >= CO2_POLL_INTERVAL_MS;
     bool readBattery = isFirstLaunch || now - lastBatteryPoll >= BATTERY_POLL_INTERVAL_MS;
 
-    if (readStandardSensors || readCo2 || readBattery) {
+    if (readStandardSensors || readExternalTemp || readCo2 || readBattery) {
         Sensors previous = actualSensors;
-        readSensors(actualSensors, readStandardSensors, readCo2, readBattery);
+        readSensors(actualSensors, readStandardSensors, readExternalTemp,
+                    readCo2, readBattery);
         unsigned long polledAt = millis();
-        if (readStandardSensors) lastSensorsPoll = polledAt;
+        if (readStandardSensors) lastStandardSensorsPoll = polledAt;
+        if (readExternalTemp) lastExternalTempPoll = polledAt;
         if (readCo2) lastCo2Poll = polledAt;
         if (readBattery) lastBatteryPoll = polledAt;
 
