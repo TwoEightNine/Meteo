@@ -2,15 +2,16 @@
 
 Arduino meteo station firmware for an ESP32-C6, a 3.5 inch ILI9486 SPI TFT with XPT2046 resistive touch, and indoor climate sensors.
 
-The UI keeps the original station structure: a compact metric strip, one large highlighted metric, a secondary metric strip, an air-quality indicator, and an always-visible battery level. There are no physical buttons and no firmware brightness control.
+The sensor UI keeps the original station structure: a compact metric strip, one large highlighted metric, a secondary metric strip, an air-quality indicator, and an always-visible battery level. There are no physical buttons and no firmware brightness control. Touch calibration mode is currently enabled for measuring the panel.
 
 ## Features
 
 - ESP32-C6 target board.
 - 480x320 landscape UI for the LCDWiki 3.5 inch RPi display.
 - Incremental display-only startup mode is available with `METEO_DISPLAY_ONLY` in `meteo_config.h`.
+- Nine-point touch calibration is available with `METEO_TOUCH_CALIBRATION` in `meteo_config.h` and is enabled by default for touch bring-up.
 - ILI9486 TFT over SPI through the project-local display driver.
-- XPT2046 resistive touch over the shared SPI bus selects the displayed metric.
+- XPT2046 resistive touch over the shared SPI bus supports calibration, or selects the displayed metric in sensor mode.
 - Touch-selectable metrics:
   - internal temperature
   - humidity
@@ -101,9 +102,9 @@ Install these Arduino libraries before compiling:
 
 The DHT11 and DS18B20 readers are implemented in the sketch, so the external DHT, OneWire, and DallasTemperature libraries are not required. The DHT11 reader uses bounded timing checks and safely reports no reading when the sensor is disconnected.
 
-The default build uses the real sensor UI and requires Adafruit GFX plus the listed sensor libraries. Set `METEO_DISPLAY_ONLY` to `1` in `meteo_config.h` to return to the display-only test screen.
+The current build starts in touch calibration mode and requires Adafruit GFX and XPT2046_Touchscreen. Set `METEO_TOUCH_CALIBRATION` to `0` in `meteo_config.h` to run the sensor UI, which also requires the sensor libraries listed above. Set `METEO_DISPLAY_ONLY` to `1` to show the display-only test screen instead; that setting takes precedence over calibration mode.
 
-Open Serial Monitor at `115200` baud during display bring-up. The sketch prints display init steps and a heartbeat every 5 seconds.
+Open Serial Monitor at `115200` baud during display bring-up. The sketch prints display init steps and touch coordinates; the display-only test mode also prints a heartbeat every 5 seconds.
 
 The LCDWiki RPi-style ILI9486 adapter uses padded 16-bit SPI command transfers. The project-local display driver uses transfer mode `1`, which sends command/data bytes as `00,data`.
 
@@ -119,7 +120,9 @@ Use an Arduino ESP32 core version that supports ESP32-C6.
 
 ## Touch
 
-Touch input uses the XPT2046 controller on the display's shared SPI bus, with `TP_CS` on GPIO `9` and `TP_SO` on GPIO `15`. A new touch on a metric tile selects it and highlights that tile; holding the panel does not repeat the selection. The central display area, battery tile, and quality/status indicator are display-only.
+Touch input uses the XPT2046 controller on the display's shared SPI bus, with `TP_CS` on GPIO `9` and `TP_SO` on GPIO `15`. Open Serial Monitor at `115200` baud before calibrating. Calibration mode shows nine crosshairs in this order: top-left, top-right, bottom-right, bottom-left, top, right, bottom, left, and center. Tap each crosshair, hold briefly, then release before tapping the next one. After the ninth release, look for the `TOUCH CALIBRATION RESULTS - 9 POINTS` banner in Serial Monitor. The report contains all raw coordinates and pressures, a clearly marked block of seven `TOUCH_*` definitions to copy, and the largest fit error. It repeats every 15 seconds; you can also send `P` in Serial Monitor to print it immediately. Reset the board to repeat the calibration sequence. Keep the same `touch.setRotation(1)` setting when using those definitions.
+
+In sensor mode, a new touch on a metric tile selects it and highlights that tile; holding the panel does not repeat the selection. The central display area, battery tile, and quality/status indicator are display-only in sensor mode.
 
 Touch calibration constants are defined near the top of `meteo_touch.ino`:
 
@@ -133,7 +136,7 @@ Touch calibration constants are defined near the top of `meteo_touch.ino`:
 #define TOUCH_INVERT_Y false
 ```
 
-If touch is mirrored, rotated, or offset on your hardware, adjust only these constants first. The UI hit boxes are already defined for the 480x320 landscape layout.
+Replace these definitions with the calibration output, then set `METEO_TOUCH_CALIBRATION` to `0` and upload again. The UI hit boxes are already defined for the 480x320 landscape layout. A large reported fit error can indicate an inaccurate tap, noisy readings, or a panel that needs a more detailed mapping.
 
 `TOUCH_PRESSURE_MIN` filters idle noise from the touch controller. The default `1200` is set above the observed idle pressure (about `1020`); lower it only if intentional presses do not reach that threshold.
 

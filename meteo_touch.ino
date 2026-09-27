@@ -1,9 +1,16 @@
 #include "meteo_config.h"
 #include "meteo_display.h"
 
-#if !METEO_DISPLAY_ONLY
+#if !METEO_DISPLAY_ONLY && !METEO_TOUCH_CALIBRATION
 #include "main_screen.h"
+#endif
+
+#if !METEO_DISPLAY_ONLY
 #include <XPT2046_Touchscreen.h>
+#endif
+
+#if !METEO_DISPLAY_ONLY && METEO_TOUCH_CALIBRATION
+#include "touch_calibration.h"
 #endif
 
 #define PIN_TFT_SCK 8
@@ -16,10 +23,10 @@
 
 // XPT2046 calibration for the 480x320 landscape display. Adjust these if the
 // panel is mirrored, rotated, or offset on a particular unit.
-#define TOUCH_MIN_X 300
-#define TOUCH_MAX_X 3900
-#define TOUCH_MIN_Y 300
-#define TOUCH_MAX_Y 3900
+#define TOUCH_MIN_X 1724
+#define TOUCH_MAX_X 3890
+#define TOUCH_MIN_Y 968
+#define TOUCH_MAX_Y 3057
 #define TOUCH_SWAP_XY false
 #define TOUCH_INVERT_X true
 #define TOUCH_INVERT_Y false
@@ -68,10 +75,18 @@ void drawDisplayOnlyScreen() {
     tft.setCursor(260, 280);
     tft.print(F("C6"));
 }
-#else
+#endif
+
+#if !METEO_DISPLAY_ONLY
+#if !METEO_TOUCH_CALIBRATION
 SensorsProvider *sensorsProvider;
 MainScreen *mainScreen;
+#endif
 XPT2046_Touchscreen touch(PIN_TOUCH_CS);
+
+#if METEO_TOUCH_CALIBRATION
+TouchCalibration calibration(tft, touch, TOUCH_PRESSURE_MIN);
+#else
 
 uint16_t mapTouchAxis(int16_t value, int16_t minValue, int16_t maxValue, uint16_t size, bool invert) {
     value = constrain(value, minValue, maxValue);
@@ -110,6 +125,7 @@ bool readTouchPoint(uint16_t *x, uint16_t *y, int16_t *rawXResult, int16_t *rawY
     return true;
 }
 #endif
+#endif
 
 void setup() {
     Serial.begin(115200);
@@ -131,13 +147,19 @@ void setup() {
     drawDisplayOnlyScreen();
     Serial.println(F("meteo_touch: test screen drawn"));
 #else
+#if !METEO_TOUCH_CALIBRATION
     Serial.println(F("meteo_touch: init sensors"));
     sensorsProvider = new SensorsProvider();
     Serial.println(F("meteo_touch: init main screen"));
     mainScreen = new MainScreen(sensorsProvider, &tft);
+#endif
     Serial.println(F("meteo_touch: init touch"));
     touch.begin(SPI);
     touch.setRotation(1);
+#if METEO_TOUCH_CALIBRATION
+    calibration.begin();
+    Serial.println(F("meteo_touch: touch calibration ready"));
+#endif
 #endif
 }
 
@@ -149,6 +171,9 @@ void loop() {
         lastPrint = millis();
     }
     delay(1000);
+#else
+#if METEO_TOUCH_CALIBRATION
+    calibration.loop();
 #else
     mainScreen->loop();
 
@@ -187,5 +212,6 @@ void loop() {
         }
         wasTouched = false;
     }
+#endif
 #endif
 }

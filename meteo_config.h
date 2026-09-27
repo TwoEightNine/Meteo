@@ -2,5 +2,6 @@
 #define METEO_CONFIG_H
 
 #define METEO_DISPLAY_ONLY 0
+#define METEO_TOUCH_CALIBRATION 0
 
 #endif

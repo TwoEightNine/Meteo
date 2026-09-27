@@ -1,6 +1,6 @@
 #include "meteo_config.h"
 
-#if !METEO_DISPLAY_ONLY
+#if !METEO_DISPLAY_ONLY && !METEO_TOUCH_CALIBRATION
 
 #include "screen.h"
 #include "sensors.h"
