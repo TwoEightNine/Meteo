@@ -24,6 +24,7 @@ The sensor UI uses a dark 480x320 instrument layout: a large focused metric on t
   - DHT11 temperature and humidity sensor
   - BMP280 pressure and temperature sensor
   - optional DS18B20 external temperature sensor
+- DS18B20 conversions and MH-Z19 UART responses are acquired asynchronously, so their wait times do not pause touch handling or display updates.
 - Green/yellow/red status line based on the existing humidity, pressure, and CO2 quality thresholds.
 
 ## Hardware
@@ -63,6 +64,8 @@ The default wiring is split by board side. Display and touch use only the right-
 
 The default wiring uses left-side GPIO `0`-`6` and right-side GPIO `8`, `9`, `14`, `15`, `18`-`20`. Left-side GPIO `7` and the `TX` and `RX` header pins remain spare. The MH-Z19 UART connections are crossed: sensor `TX` goes to ESP32-C6 GPIO `4` (RX), and sensor `RX` goes to ESP32-C6 GPIO `5` (TX).
 
+These sensor GPIO assignments are fixed by the firmware and remain unchanged by asynchronous acquisition.
+
 The LCD backlight is expected to be wired permanently on. Brightness control is intentionally removed.
 
 ### DS18B20 Wiring
@@ -100,7 +103,7 @@ Install these Arduino libraries before compiling:
 - Adafruit Unified Sensor
 - XPT2046_Touchscreen
 
-The DHT11 and DS18B20 readers are implemented in the sketch, so the external DHT, OneWire, and DallasTemperature libraries are not required. The DHT11 reader uses bounded timing checks and safely reports no reading when the sensor is disconnected.
+The DHT11 and DS18B20 readers are implemented in the sketch, so the external DHT, OneWire, and DallasTemperature libraries are not required. The DHT11 reader uses bounded timing checks and safely reports no reading when the sensor is disconnected. DS18B20 conversion waits and CRC retries run as a cooperative state machine, while MH-Z19 response bytes are framed and validated incrementally from the UART.
 
 The current build starts in sensor mode and requires Adafruit GFX, XPT2046_Touchscreen, and the sensor libraries listed above. Set `METEO_TOUCH_CALIBRATION` to `1` in `meteo_config.h` for touch calibration, or `METEO_DISPLAY_ONLY` to `1` for the display-only test screen; display-only mode takes precedence.
 

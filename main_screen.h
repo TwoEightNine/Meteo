@@ -70,7 +70,12 @@ private:
     uint8_t quality = QUALITY_WORST;
     uint8_t renderedQuality = 255;
     int16_t renderedBatteryPercent = -1;
-    bool isFirstLaunch = true;
+    bool initialImmediateReadDone = false;
+    bool externalTempPollCompleted = false;
+    bool co2PollCompleted = false;
+    bool externalTempReadPending = false;
+    bool co2ReadPending = false;
+    bool dashboardDrawn = false;
 
     TextRect valueBounds[5] = {};
     TextRect unitBounds[5] = {};
@@ -80,7 +85,14 @@ private:
     unsigned long lastCo2Poll = 0;
     unsigned long lastBatteryPoll = 0;
 
-    Sensors actualSensors = {};
+    Sensors actualSensors = {
+        HUMID_NONE,
+        TEMP_NONE,
+        0,
+        TEMP_EXTERNAL_NONE,
+        CO2_NONE,
+        0
+    };
 
     void drawFrame();
     void drawFocusPanel(bool fullPanel);
@@ -94,8 +106,7 @@ private:
     TextRect drawUnit(uint8_t sensorMode, int16_t x, int16_t y, bool focus);
     void formatValue(uint8_t sensorMode, char *buffer, size_t bufferSize);
     bool sensorChanged(uint8_t sensorMode, const Sensors& previous) const;
-    void readSensors(Sensors& result, bool readStandardSensors,
-                     bool readExternalTemp, bool readCo2, bool readBattery);
+    void readStandardSensors(Sensors& result);
     void updateQuality();
     uint8_t calculateQuality(Sensors& sensors);
     uint8_t getWarningRank(uint16_t warnMin, uint16_t urgentMin, uint16_t warnMax, uint16_t urgentMax, uint16_t value);

@@ -192,88 +192,124 @@ bool SensorsProvider::readDht11(float *humidity, float *temperature) {
     return true;
 }
 
-int8_t SensorsProvider::readTempExternal() {
-    uint8_t scratchpad[9];
+bool SensorsProvider::startExternalTemperatureRead() {
+    if (ds18b20ReadState != Ds18b20ReadState::Idle) {
+        return false;
+    }
 
     if (!ds18b20RomLogged) {
         ds18b20LogRom();
         ds18b20RomLogged = true;
     }
 
-    for (uint8_t attempt = 1; attempt <= DS18B20_READ_ATTEMPTS; attempt++) {
-        if (!ds18b20Reset()) {
-            Serial.println(F("sensor ds18b20: not found"));
-            return TEMP_EXTERNAL_NONE;
-        }
-        ds18b20WriteByte(0xcc); // Skip ROM: this firmware supports one DS18B20 on the bus.
-        ds18b20WriteByte(0x44); // Convert temperature.
-        delay(750);
-
-        if (!ds18b20Reset()) {
-            Serial.println(F("sensor ds18b20: lost after convert"));
-            return TEMP_EXTERNAL_NONE;
-        }
-        ds18b20WriteByte(0xcc);
-        ds18b20WriteByte(0xbe); // Read scratchpad.
-
-        for (uint8_t i = 0; i < 9; i++) {
-            scratchpad[i] = ds18b20ReadByte();
-        }
-
-        if (ds18b20Crc8(scratchpad, 8) != scratchpad[8]) {
-            bool allHigh = true;
-            bool allLow = true;
-            for (uint8_t i = 0; i < 9; i++) {
-                if (scratchpad[i] != 0xff) {
-                    allHigh = false;
-                }
-                if (scratchpad[i] != 0x00) {
-                    allLow = false;
-                }
-            }
-
-            Serial.print(F("sensor ds18b20: crc error attempt "));
-            Serial.print(attempt);
-            Serial.print(F(" data"));
-            for (uint8_t i = 0; i < 9; i++) {
-                Serial.print(' ');
-                if (scratchpad[i] < 16) {
-                    Serial.print('0');
-                }
-                Serial.print(scratchpad[i], HEX);
-            }
-            Serial.println();
-            if (allHigh) {
-                Serial.println(F("sensor ds18b20: bus stayed high while reading scratchpad"));
-            } else if (allLow) {
-                Serial.println(F("sensor ds18b20: bus stayed low while reading scratchpad"));
-            }
-            delay(20);
-            continue;
-        }
-
-        int16_t raw = (scratchpad[1] << 8) | scratchpad[0];
-        float c = raw / 16.0;
-
-        if (c < -55 || c > 125) {
-            Serial.print(F("sensor ds18b20: out of range "));
-            Serial.println(c);
-            return TEMP_EXTERNAL_NONE;
-        }
-
-        return (int8_t) getCorrectedTempExternal(c);
+    ds18b20ReadAttempt = 1;
+    if (!ds18b20StartConversion()) {
+        ds18b20ReadState = Ds18b20ReadState::Failure;
     }
-
-    return TEMP_EXTERNAL_NONE;
+    return true;
 }
 
-uint16_t SensorsProvider::readCo2ppm() {
-    int ppm = mhz19->getCO2PPM();
-    if (ppm > CO2_NONE) {
-        return (uint16_t) ppm;
-    } else {
-        return CO2_NONE;
+AsyncReadStatus SensorsProvider::pollExternalTemperature(int8_t& temperature) {
+    if (ds18b20ReadState == Ds18b20ReadState::Idle) {
+        return AsyncReadStatus::Idle;
     }
+    if (ds18b20ReadState == Ds18b20ReadState::Failure) {
+        ds18b20ReadState = Ds18b20ReadState::Idle;
+        return AsyncReadStatus::Failure;
+    }
+
+    uint32_t now = millis();
+    if (!ds18b20DeadlineReached(now)) {
+        return AsyncReadStatus::Pending;
+    }
+
+    if (ds18b20ReadState == Ds18b20ReadState::WaitingToRetry) {
+        ds18b20ReadAttempt++;
+        if (!ds18b20StartConversion()) {
+            ds18b20ReadState = Ds18b20ReadState::Idle;
+            return AsyncReadStatus::Failure;
+        }
+        return AsyncReadStatus::Pending;
+    }
+
+    uint8_t scratchpad[9];
+    if (!ds18b20Reset()) {
+        Serial.println(F("sensor ds18b20: lost after convert"));
+        ds18b20ReadState = Ds18b20ReadState::Idle;
+        return AsyncReadStatus::Failure;
+    }
+    ds18b20WriteByte(0xcc);
+    ds18b20WriteByte(0xbe); // Read scratchpad.
+
+    for (uint8_t i = 0; i < 9; i++) {
+        scratchpad[i] = ds18b20ReadByte();
+    }
+
+    if (ds18b20Crc8(scratchpad, 8) != scratchpad[8]) {
+        bool allHigh = true;
+        bool allLow = true;
+        for (uint8_t i = 0; i < 9; i++) {
+            if (scratchpad[i] != 0xff) {
+                allHigh = false;
+            }
+            if (scratchpad[i] != 0x00) {
+                allLow = false;
+            }
+        }
+
+        Serial.print(F("sensor ds18b20: crc error attempt "));
+        Serial.print(ds18b20ReadAttempt);
+        Serial.print(F(" data"));
+        for (uint8_t i = 0; i < 9; i++) {
+            Serial.print(' ');
+            if (scratchpad[i] < 16) {
+                Serial.print('0');
+            }
+            Serial.print(scratchpad[i], HEX);
+        }
+        Serial.println();
+        if (allHigh) {
+            Serial.println(F("sensor ds18b20: bus stayed high while reading scratchpad"));
+        } else if (allLow) {
+            Serial.println(F("sensor ds18b20: bus stayed low while reading scratchpad"));
+        }
+
+        if (ds18b20ReadAttempt < DS18B20_READ_ATTEMPTS) {
+            ds18b20Deadline = millis() + DS18B20_RETRY_DELAY_MS;
+            ds18b20ReadState = Ds18b20ReadState::WaitingToRetry;
+            return AsyncReadStatus::Pending;
+        }
+
+        ds18b20ReadState = Ds18b20ReadState::Idle;
+        return AsyncReadStatus::Failure;
+    }
+
+    int16_t raw = (scratchpad[1] << 8) | scratchpad[0];
+    float c = raw / 16.0;
+
+    if (c < -55 || c > 125) {
+        Serial.print(F("sensor ds18b20: out of range "));
+        Serial.println(c);
+        ds18b20ReadState = Ds18b20ReadState::Idle;
+        return AsyncReadStatus::Failure;
+    }
+
+    temperature = (int8_t) getCorrectedTempExternal(c);
+    ds18b20ReadState = Ds18b20ReadState::Idle;
+    return AsyncReadStatus::Success;
+}
+
+bool SensorsProvider::startCo2Read() {
+    return mhz19->startCO2Read();
+}
+
+AsyncReadStatus SensorsProvider::pollCo2(uint16_t& ppm) {
+    int result = 0;
+    AsyncReadStatus status = mhz19->pollCO2(result);
+    if (status == AsyncReadStatus::Success) {
+        ppm = (uint16_t) result;
+    }
+    return status;
 }
 
 uint16_t SensorsProvider::readBatteryMilliVolts() {
@@ -290,6 +326,23 @@ uint16_t SensorsProvider::readBatteryMilliVolts() {
     float pinMilliVolts = ((float) sum) / BATTERY_SAMPLES;
     // The ADC reads the midpoint of the 100k / 100k divider, i.e. half the battery voltage.
     return (uint16_t) round(pinMilliVolts * BATTERY_DIVIDER_RATIO);
+}
+
+bool SensorsProvider::ds18b20StartConversion() {
+    if (!ds18b20Reset()) {
+        Serial.println(F("sensor ds18b20: not found"));
+        return false;
+    }
+
+    ds18b20WriteByte(0xcc); // Skip ROM: this firmware supports one DS18B20 on the bus.
+    ds18b20WriteByte(0x44); // Convert temperature.
+    ds18b20Deadline = millis() + DS18B20_CONVERSION_TIME_MS;
+    ds18b20ReadState = Ds18b20ReadState::WaitingForConversion;
+    return true;
+}
+
+bool SensorsProvider::ds18b20DeadlineReached(uint32_t now) const {
+    return (int32_t) (now - ds18b20Deadline) >= 0;
 }
 
 void SensorsProvider::ds18b20Release() {

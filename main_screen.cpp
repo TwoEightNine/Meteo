@@ -567,54 +567,46 @@ void MainScreen::drawBattery() {
     drawSmoothText(tft, label, 477 - size.w, 10, LABEL_FONT, GREEN);
 }
 
-void MainScreen::readSensors(Sensors& result, bool readStandardSensors,
-                             bool readExternalTemp, bool readCo2,
-                             bool readBattery) {
-    Serial.print(F("sensors read:"));
-    if (readStandardSensors) Serial.print(F(" standard"));
-    if (readExternalTemp) Serial.print(F(" external-temp"));
-    if (readCo2) Serial.print(F(" co2"));
-    if (readBattery) Serial.print(F(" voltage"));
-    Serial.println();
-    Serial.print(F("secs: "));
-    Serial.println(millis() / 1000);
+void MainScreen::readStandardSensors(Sensors& result) {
+    result.humidity = sensorsProvider->readHumidity();
+    result.temperatureInternal = sensorsProvider->readTempInternal();
+    result.pressureMinus600 = sensorsProvider->readPressureMinus600();
 
-    if (readStandardSensors) {
-        result.humidity = sensorsProvider->readHumidity();
-        result.temperatureInternal = sensorsProvider->readTempInternal();
-        result.pressureMinus600 = sensorsProvider->readPressureMinus600();
-    }
-    if (readExternalTemp) {
-        result.temperatureExternal = sensorsProvider->readTempExternal();
-    }
-    if (readCo2) {
-        result.co2ppm = sensorsProvider->readCo2ppm();
-    }
-    if (readBattery) {
-        result.batteryMilliVolts = sensorsProvider->readBatteryMilliVolts();
-    }
-
-    Serial.print(F("hum: "));
+    Serial.print(F("sensor standard complete: hum="));
     Serial.print(result.humidity);
-    Serial.print(F(" ti: "));
+    Serial.print(F(" ti="));
     Serial.print(result.temperatureInternal);
-    Serial.print(F(" p: "));
+    Serial.print(F(" p="));
     if (result.pressureMinus600 == 0) {
         Serial.print(F("---"));
     } else {
         Serial.print(result.pressureMinus600 + 600);
     }
-    Serial.print(F(" te: "));
-    Serial.print(result.temperatureExternal);
-    Serial.print(F(" co2ppm: "));
-    Serial.print(result.co2ppm);
-    Serial.print(F(" bat: "));
-    Serial.print(result.batteryMilliVolts);
-    Serial.println(F("mV"));
+    Serial.println();
 }
 
 void MainScreen::loop() {
     unsigned long now = millis();
+    Sensors previous = actualSensors;
+
+    bool readStandardSensorsNow = !initialImmediateReadDone ||
+        now - lastStandardSensorsPoll >= STANDARD_SENSORS_POLL_INTERVAL_MS;
+    bool readBatteryNow = !initialImmediateReadDone ||
+        now - lastBatteryPoll >= BATTERY_POLL_INTERVAL_MS;
+
+    if (readStandardSensorsNow) {
+        readStandardSensors(actualSensors);
+        lastStandardSensorsPoll = millis();
+    }
+    if (readBatteryNow) {
+        actualSensors.batteryMilliVolts = sensorsProvider->readBatteryMilliVolts();
+        lastBatteryPoll = millis();
+        Serial.print(F("sensor battery complete: "));
+        Serial.print(actualSensors.batteryMilliVolts);
+        Serial.println(F("mV"));
+    }
+    initialImmediateReadDone = true;
+
     bool temperaturesValid = actualSensors.temperatureInternal > 0 &&
                              actualSensors.temperatureInternal < 100 &&
                              actualSensors.temperatureExternal != TEMP_EXTERNAL_NONE;
@@ -627,37 +619,84 @@ void MainScreen::loop() {
         ? EXTERNAL_TEMP_FAR_POLL_INTERVAL_MS
         : EXTERNAL_TEMP_NEAR_POLL_INTERVAL_MS;
 
-    bool readStandardSensors = isFirstLaunch ||
-        now - lastStandardSensorsPoll >= STANDARD_SENSORS_POLL_INTERVAL_MS;
-    bool readExternalTemp = isFirstLaunch ||
+    bool externalTempDue = !externalTempPollCompleted ||
         now - lastExternalTempPoll >= externalTempPollInterval;
-    bool readCo2 = isFirstLaunch || now - lastCo2Poll >= CO2_POLL_INTERVAL_MS;
-    bool readBattery = isFirstLaunch || now - lastBatteryPoll >= BATTERY_POLL_INTERVAL_MS;
+    if (!externalTempReadPending && externalTempDue &&
+        sensorsProvider->startExternalTemperatureRead()) {
+        externalTempReadPending = true;
+        Serial.println(F("sensor external-temp request started"));
+    }
 
-    if (readStandardSensors || readExternalTemp || readCo2 || readBattery) {
-        Sensors previous = actualSensors;
-        readSensors(actualSensors, readStandardSensors, readExternalTemp,
-                    readCo2, readBattery);
-        unsigned long polledAt = millis();
-        if (readStandardSensors) lastStandardSensorsPoll = polledAt;
-        if (readExternalTemp) lastExternalTempPoll = polledAt;
-        if (readCo2) lastCo2Poll = polledAt;
-        if (readBattery) lastBatteryPoll = polledAt;
+    bool co2Due = !co2PollCompleted || now - lastCo2Poll >= CO2_POLL_INTERVAL_MS;
+    if (!co2ReadPending && co2Due && sensorsProvider->startCo2Read()) {
+        co2ReadPending = true;
+        Serial.println(F("sensor co2 request started"));
+    }
 
-        if (readStandardSensors || readCo2) {
+    bool externalTempSucceeded = false;
+    if (externalTempReadPending) {
+        int8_t temperature;
+        AsyncReadStatus status = sensorsProvider->pollExternalTemperature(temperature);
+        if (status == AsyncReadStatus::Success || status == AsyncReadStatus::Failure) {
+            externalTempReadPending = false;
+            externalTempPollCompleted = true;
+            lastExternalTempPoll = millis();
+            if (status == AsyncReadStatus::Success) {
+                actualSensors.temperatureExternal = temperature;
+                externalTempSucceeded = true;
+                Serial.print(F("sensor external-temp complete: "));
+                Serial.println(temperature);
+            } else if (actualSensors.temperatureExternal == TEMP_EXTERNAL_NONE) {
+                Serial.println(F("sensor external-temp failed; no valid value"));
+            } else {
+                Serial.println(F("sensor external-temp failed; keeping last value"));
+            }
+        }
+    }
+
+    bool co2Succeeded = false;
+    if (co2ReadPending) {
+        uint16_t ppm;
+        AsyncReadStatus status = sensorsProvider->pollCo2(ppm);
+        if (status == AsyncReadStatus::Success || status == AsyncReadStatus::Failure) {
+            co2ReadPending = false;
+            co2PollCompleted = true;
+            lastCo2Poll = millis();
+            if (status == AsyncReadStatus::Success) {
+                actualSensors.co2ppm = ppm;
+                co2Succeeded = true;
+                Serial.print(F("sensor co2 complete: "));
+                Serial.print(ppm);
+                Serial.println(F("ppm"));
+            } else if (actualSensors.co2ppm == CO2_NONE) {
+                Serial.println(F("sensor co2 failed; no valid value"));
+            } else {
+                Serial.println(F("sensor co2 failed; keeping last value"));
+            }
+        }
+    }
+
+    if (!dashboardDrawn) {
+        if (externalTempPollCompleted && co2PollCompleted) {
             quality = calculateQuality(actualSensors);
             updateQuality();
-        }
-        if (readBattery) {
             drawBattery();
-        }
-
-        if (isFirstLaunch) {
             drawFocusPanel(true);
             for (uint8_t row = 0; row < 4; ++row) {
                 drawSidePanel(row, true);
             }
-        } else {
+            dashboardDrawn = true;
+        }
+    } else {
+        if (readStandardSensorsNow || co2Succeeded) {
+            quality = calculateQuality(actualSensors);
+            updateQuality();
+        }
+        if (readBatteryNow) {
+            drawBattery();
+        }
+
+        if (readStandardSensorsNow || externalTempSucceeded || co2Succeeded) {
             if (sensorChanged(mode, previous)) {
                 drawFocusPanel(false);
             }
@@ -669,7 +708,6 @@ void MainScreen::loop() {
         }
     }
 
-    isFirstLaunch = false;
     delay(50);
 }
 
@@ -700,7 +738,9 @@ void MainScreen::onTouch(uint16_t x, uint16_t y) {
     }
 
     mode = selected;
-    drawFocusPanel(true);
+    if (dashboardDrawn) {
+        drawFocusPanel(true);
+    }
 
     Serial.print(F("touch: event=select mode="));
     Serial.println(modeLabel(mode));
