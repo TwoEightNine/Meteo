@@ -56,9 +56,13 @@ private:
     Ds18b20ReadState ds18b20ReadState = Ds18b20ReadState::Idle;
     uint8_t ds18b20ReadAttempt = 0;
     uint32_t ds18b20Deadline = 0;
+    // Called only from waits where sensor timing permits interruption.
+    void (*serviceCallback)() = nullptr;
 
     bool readDht11(float *humidity, float *temperature);
     bool waitForDhtLevel(uint8_t level, uint32_t timeoutUs);
+    void service();
+    void cooperativeDelay(uint32_t durationMs);
     void ds18b20DriveLow();
     void ds18b20Release();
     uint8_t ds18b20ReadLevel();
@@ -78,6 +82,7 @@ private:
 
 public:
     SensorsProvider();
+    void setServiceCallback(void (*callback)());
     uint8_t readHumidity();
     int8_t readTempInternal();
     uint8_t readPressureMinus600();

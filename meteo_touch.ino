@@ -31,7 +31,8 @@
 #define TOUCH_INVERT_X true
 #define TOUCH_INVERT_Y false
 #define TOUCH_PRESSURE_MIN 1200
-#define TOUCH_LOG_INTERVAL_MS 250
+#define TOUCH_POLL_INTERVAL_MS 5
+#define TOUCH_RELEASE_DEBOUNCE_MS 20
 
 MeteoDisplay tft(PIN_TFT_CS, PIN_TFT_DC, PIN_TFT_RST, PIN_TFT_SCK, PIN_TFT_MOSI, PIN_TFT_MISO);
 
@@ -124,6 +125,71 @@ bool readTouchPoint(uint16_t *x, uint16_t *y, int16_t *rawXResult, int16_t *rawY
     *y = mapTouchAxis(rawY, TOUCH_MIN_Y, TOUCH_MAX_Y, tft.height(), TOUCH_INVERT_Y);
     return true;
 }
+
+struct PendingTouch {
+    bool available = false;
+    uint16_t x = 0;
+    uint16_t y = 0;
+};
+
+PendingTouch pendingTouch;
+bool touchDown = false;
+uint32_t lastTouchPollAt = 0;
+uint32_t lastValidTouchAt = 0;
+
+void pollTouchInput() {
+    uint32_t now = millis();
+    if ((uint32_t) (now - lastTouchPollAt) < TOUCH_POLL_INTERVAL_MS) {
+        return;
+    }
+    lastTouchPollAt = now;
+
+    uint16_t x;
+    uint16_t y;
+    int16_t rawX;
+    int16_t rawY;
+    int16_t pressure;
+    if (readTouchPoint(&x, &y, &rawX, &rawY, &pressure)) {
+        lastValidTouchAt = now;
+        if (!touchDown) {
+            touchDown = true;
+            if (!pendingTouch.available) {
+                pendingTouch.x = x;
+                pendingTouch.y = y;
+                pendingTouch.available = true;
+            }
+
+            Serial.print(F("touch: raw=("));
+            Serial.print(rawX);
+            Serial.print(F(","));
+            Serial.print(rawY);
+            Serial.print(F(") z="));
+            Serial.print(pressure);
+            Serial.print(F(" screen=("));
+            Serial.print(x);
+            Serial.print(F(","));
+            Serial.print(y);
+            Serial.println(F(")"));
+        }
+        return;
+    }
+
+    if (touchDown && (uint32_t) (now - lastValidTouchAt) >= TOUCH_RELEASE_DEBOUNCE_MS) {
+        touchDown = false;
+        Serial.println(F("touch: released"));
+    }
+}
+
+void dispatchPendingTouch() {
+    if (!pendingTouch.available) {
+        return;
+    }
+
+    uint16_t x = pendingTouch.x;
+    uint16_t y = pendingTouch.y;
+    pendingTouch.available = false;
+    mainScreen->onTouch(x, y);
+}
 #endif
 #endif
 
@@ -159,6 +225,9 @@ void setup() {
 #if METEO_TOUCH_CALIBRATION
     calibration.begin();
     Serial.println(F("meteo_touch: touch calibration ready"));
+#else
+    tft.setServiceCallback(pollTouchInput);
+    sensorsProvider->setServiceCallback(pollTouchInput);
 #endif
 #endif
 }
@@ -175,43 +244,11 @@ void loop() {
 #if METEO_TOUCH_CALIBRATION
     calibration.loop();
 #else
+    pollTouchInput();
+    dispatchPendingTouch();
     mainScreen->loop();
-
-    static bool wasTouched = false;
-    static uint32_t lastTouchLog = 0;
-    uint16_t x;
-    uint16_t y;
-    int16_t rawX;
-    int16_t rawY;
-    int16_t pressure;
-
-    if (readTouchPoint(&x, &y, &rawX, &rawY, &pressure)) {
-        uint32_t now = millis();
-        if (!wasTouched || now - lastTouchLog >= TOUCH_LOG_INTERVAL_MS) {
-            Serial.print(F("touch: raw=("));
-            Serial.print(rawX);
-            Serial.print(F(","));
-            Serial.print(rawY);
-            Serial.print(F(") z="));
-            Serial.print(pressure);
-            Serial.print(F(" screen=("));
-            Serial.print(x);
-            Serial.print(F(","));
-            Serial.print(y);
-            Serial.println(F(")"));
-            lastTouchLog = now;
-        }
-
-        if (!wasTouched) {
-            mainScreen->onTouch(x, y);
-        }
-        wasTouched = true;
-    } else {
-        if (wasTouched) {
-            Serial.println(F("touch: released"));
-        }
-        wasTouched = false;
-    }
+    pollTouchInput();
+    dispatchPendingTouch();
 #endif
 #endif
 }

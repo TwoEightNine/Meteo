@@ -25,6 +25,7 @@ The sensor UI uses a dark 480x320 instrument layout: a large focused metric on t
   - BMP280 pressure and temperature sensor
   - optional DS18B20 external temperature sensor
 - DS18B20 conversions and MH-Z19 UART responses are acquired asynchronously, so their wait times do not pause touch handling or display updates.
+- Touch input is sampled cooperatively during long display transfers and sensor waits. Large screen fills are sent in bounded SPI chunks so short taps can be latched while the UI redraws.
 - Green/yellow/red status line based on the existing humidity, pressure, and CO2 quality thresholds.
 
 ## Hardware

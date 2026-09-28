@@ -63,6 +63,25 @@ SensorsProvider::SensorsProvider() {
 #endif
 }
 
+void SensorsProvider::setServiceCallback(void (*callback)()) {
+    serviceCallback = callback;
+}
+
+void SensorsProvider::service() {
+    if (serviceCallback != nullptr) {
+        serviceCallback();
+    }
+}
+
+void SensorsProvider::cooperativeDelay(uint32_t durationMs) {
+    uint32_t startedAt = millis();
+    while ((uint32_t) (millis() - startedAt) < durationMs) {
+        service();
+        delay(1);
+    }
+    service();
+}
+
 uint8_t SensorsProvider::readHumidity() {
     float humidity;
     float temperature;
@@ -144,7 +163,7 @@ bool SensorsProvider::readDht11(float *humidity, float *temperature) {
     // DHT11 start signal: low for at least 18 ms, then release the bus.
     pinMode(PIN_DHT, OUTPUT);
     digitalWrite(PIN_DHT, LOW);
-    delay(20);
+    cooperativeDelay(20);
     digitalWrite(PIN_DHT, HIGH);
     delayMicroseconds(40);
     pinMode(PIN_DHT, INPUT_PULLUP);
@@ -320,7 +339,7 @@ uint16_t SensorsProvider::readBatteryMilliVolts() {
 #else
         sum += (uint32_t) round(analogRead(PIN_BATTERY_ADC) * 3300.0 / 1023.0);
 #endif
-        delay(2);
+        cooperativeDelay(2);
     }
 
     float pinMilliVolts = ((float) sum) / BATTERY_SAMPLES;

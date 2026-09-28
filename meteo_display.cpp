@@ -18,6 +18,10 @@
 
 #define DISPLAY_SPI_FREQUENCY 8000000
 
+namespace {
+constexpr uint32_t MAX_FILL_PIXELS_PER_CHUNK = 2048;
+}
+
 MeteoDisplay::MeteoDisplay(int8_t cs, int8_t dc, int8_t rst, int8_t sck, int8_t mosi, int8_t miso)
     : Adafruit_GFX(320, 480) {
     this->cs = cs;
@@ -122,6 +126,10 @@ void MeteoDisplay::setTransferMode(uint8_t mode) {
     transferMode = mode;
 }
 
+void MeteoDisplay::setServiceCallback(void (*callback)()) {
+    serviceCallback = callback;
+}
+
 void MeteoDisplay::setRotation(uint8_t rotation) {
     rotationValue = rotation & 3;
 
@@ -159,6 +167,7 @@ void MeteoDisplay::drawPixel(int16_t x, int16_t y, uint16_t color) {
     select();
     writeColor(color, 1);
     deselect();
+    service();
 }
 
 void MeteoDisplay::drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color) {
@@ -191,10 +200,24 @@ void MeteoDisplay::fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t
         return;
     }
 
-    setAddressWindow(x, y, w, h);
-    select();
-    writeColor(color, (uint32_t) w * h);
-    deselect();
+    int16_t rowsPerChunk = (int16_t) (MAX_FILL_PIXELS_PER_CHUNK / (uint16_t) w);
+    if (rowsPerChunk < 1) {
+        rowsPerChunk = 1;
+    }
+
+    int16_t rowsRemaining = h;
+    int16_t chunkY = y;
+    while (rowsRemaining > 0) {
+        int16_t chunkRows = rowsRemaining < rowsPerChunk ? rowsRemaining : rowsPerChunk;
+        setAddressWindow(x, chunkY, w, chunkRows);
+        select();
+        writeColor(color, (uint32_t) w * chunkRows);
+        deselect();
+        service();
+
+        chunkY += chunkRows;
+        rowsRemaining -= chunkRows;
+    }
 }
 
 void MeteoDisplay::fillScreen(uint16_t color) {
@@ -212,6 +235,7 @@ void MeteoDisplay::drawRGB565Row(int16_t x, int16_t y, const uint16_t *pixels, i
         write16(pixels[i]);
     }
     deselect();
+    service();
 }
 
 void MeteoDisplay::select() {
@@ -222,6 +246,12 @@ void MeteoDisplay::select() {
 void MeteoDisplay::deselect() {
     digitalWrite(cs, HIGH);
     SPI.endTransaction();
+}
+
+void MeteoDisplay::service() {
+    if (serviceCallback != nullptr) {
+        serviceCallback();
+    }
 }
 
 void MeteoDisplay::writeCommand(uint8_t command) {

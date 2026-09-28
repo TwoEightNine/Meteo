@@ -707,8 +707,6 @@ void MainScreen::loop() {
             }
         }
     }
-
-    delay(50);
 }
 
 void MainScreen::onTouch(uint16_t x, uint16_t y) {

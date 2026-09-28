@@ -14,6 +14,7 @@ public:
 
     void begin();
     void setTransferMode(uint8_t mode);
+    void setServiceCallback(void (*callback)());
     void drawPixel(int16_t x, int16_t y, uint16_t color);
     void drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color);
     void drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color);
@@ -31,9 +32,12 @@ private:
     int8_t miso;
     uint8_t rotationValue;
     uint8_t transferMode;
+    // Called only between SPI transactions; it must not draw to the display.
+    void (*serviceCallback)() = nullptr;
 
     void select();
     void deselect();
+    void service();
     void write8(uint8_t data);
     void write16(uint16_t data);
     void writeCommand(uint8_t command);
