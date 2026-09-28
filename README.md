@@ -25,6 +25,8 @@ The sensor UI uses a dark 480x320 instrument layout: a large focused metric on t
   - BMP280 pressure and temperature sensor
   - optional DS18B20 external temperature sensor
 - DS18B20 conversions and MH-Z19 UART responses are acquired asynchronously, so their wait times do not pause touch handling or display updates.
+- Physical sensors are polled by a cooperative round-robin scheduler. Only one sensor transaction runs at a time, and completed transactions are separated by one second to avoid coincident current spikes.
+- Battery voltage is sampled every 15 seconds or later, with no sensor activity for at least two seconds before and after the ADC reading.
 - Touch input is sampled cooperatively during long display transfers and sensor waits. Large screen fills are sent in bounded SPI chunks so short taps can be latched while the UI redraws.
 - Green/yellow/red status line based on the existing humidity, pressure, and CO2 quality thresholds.
 
@@ -95,6 +97,7 @@ The divider output must never exceed the ESP32-C6 ADC input range. With the defa
 The firmware converts the measured ADC voltage back to battery voltage by multiplying it by `2`.
 
 The UI estimates battery percentage linearly from the measured voltage: `3.35 V` is `0%`, `3.90 V` is `100%`, and values outside that range are clamped. The battery icon and percentage appear only in the header.
+At startup the dashboard initially shows placeholders. The first battery reading waits for a two-second quiet period after sensor initialization, and sensor polling remains paused for another two seconds afterward. Later battery readings use the same quiet-window rule and may therefore occur later than their nominal 15-second interval when a sensor transaction is still active.
 
 ## Software Dependencies
 

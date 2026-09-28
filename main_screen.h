@@ -15,12 +15,15 @@
 #define MODE_PRESSURE 4
 #define MODES_COUNT   5
 
-#define STANDARD_SENSORS_POLL_INTERVAL_MS 15000
+#define DHT_POLL_INTERVAL_MS 15000
+#define BMP_POLL_INTERVAL_MS 15000
 #define EXTERNAL_TEMP_NEAR_POLL_INTERVAL_MS 15000
 #define EXTERNAL_TEMP_FAR_POLL_INTERVAL_MS 1000
 #define EXTERNAL_TEMP_DIFFERENCE_THRESHOLD_C 5
 #define CO2_POLL_INTERVAL_MS 60000
-#define BATTERY_POLL_INTERVAL_MS 5000
+#define BATTERY_POLL_INTERVAL_MS 15000
+#define SENSOR_POLL_GAP_MS 1000
+#define BATTERY_SENSOR_GUARD_MS 2000
 
 #define HUM_WARN_MIN 40
 #define HUM_WARN_MAX 60
@@ -59,6 +62,16 @@ struct TextRect {
     uint16_t h = 0;
 };
 
+enum class SensorTask : uint8_t {
+    Dht = 0,
+    Bmp = 1,
+    ExternalTemperature = 2,
+    Co2 = 3,
+    None = 255
+};
+
+#define SENSOR_TASK_COUNT 4
+
 class MainScreen : public Screen {
 private:
     SensorsProvider *sensorsProvider;
@@ -69,21 +82,19 @@ private:
     const uint8_t sideModes[4] = {MODE_TEMP_EXT, MODE_PRESSURE, MODE_CO2, MODE_HUMIDITY};
     uint8_t quality = QUALITY_WORST;
     uint8_t renderedQuality = 255;
-    int16_t renderedBatteryPercent = -1;
-    bool initialImmediateReadDone = false;
-    bool externalTempPollCompleted = false;
-    bool co2PollCompleted = false;
-    bool externalTempReadPending = false;
-    bool co2ReadPending = false;
-    bool dashboardDrawn = false;
+    int16_t renderedBatteryPercent = -2;
+    SensorTask activeSensorTask = SensorTask::None;
+    uint8_t nextSensorTaskIndex = 0;
+    bool sensorPollCompleted[SENSOR_TASK_COUNT] = {};
+    uint32_t lastSensorPollAt[SENSOR_TASK_COUNT] = {};
+    uint32_t lastSensorActivityAt = 0;
+    uint32_t sensorStartAllowedAt = 0;
+    uint32_t lastBatteryPollAt = 0;
+    bool batteryPollCompleted = false;
+    bool batteryQuietWaitLogged = false;
 
     TextRect valueBounds[5] = {};
     TextRect unitBounds[5] = {};
-
-    unsigned long lastStandardSensorsPoll = 0;
-    unsigned long lastExternalTempPoll = 0;
-    unsigned long lastCo2Poll = 0;
-    unsigned long lastBatteryPoll = 0;
 
     Sensors actualSensors = {
         HUMID_NONE,
@@ -106,7 +117,18 @@ private:
     TextRect drawUnit(uint8_t sensorMode, int16_t x, int16_t y, bool focus);
     void formatValue(uint8_t sensorMode, char *buffer, size_t bufferSize);
     bool sensorChanged(uint8_t sensorMode, const Sensors& previous) const;
-    void readStandardSensors(Sensors& result);
+    bool deadlineReached(uint32_t now, uint32_t deadline) const;
+    bool taskDue(SensorTask task, uint32_t now) const;
+    uint32_t taskInterval(SensorTask task) const;
+    const __FlashStringHelper *taskName(SensorTask task) const;
+    void logTaskEvent(SensorTask task, const __FlashStringHelper *event) const;
+    bool qualityInputsReady() const;
+    void renderCompletedTask(SensorTask task, const Sensors& previous);
+    void completeSensorTask(SensorTask task, const Sensors& previous);
+    void startSensorTask(SensorTask task);
+    bool pollActiveSensorTask();
+    bool pollBatteryIfDue(uint32_t now);
+    SensorTask nextDueSensorTask(uint32_t now);
     void updateQuality();
     uint8_t calculateQuality(Sensors& sensors);
     uint8_t getWarningRank(uint16_t warnMin, uint16_t urgentMin, uint16_t warnMax, uint16_t urgentMax, uint16_t value);

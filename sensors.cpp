@@ -82,48 +82,51 @@ void SensorsProvider::cooperativeDelay(uint32_t durationMs) {
     service();
 }
 
-uint8_t SensorsProvider::readHumidity() {
+void SensorsProvider::readDht(uint8_t& humidityResult, int8_t& internalTemperature) {
     float humidity;
     float temperature;
     if (!readDht11(&humidity, &temperature)) {
-        return HUMID_NONE;
+        humidityResult = HUMID_NONE;
+    } else {
+        humidityResult = (uint8_t) getCorrectedHumidity(humidity);
     }
-    return (uint8_t) getCorrectedHumidity(humidity);
+    internalTemperature = getCachedTempInternal();
 }
 
-uint8_t SensorsProvider::readPressureMinus600() {
+void SensorsProvider::readBmp(uint8_t& pressureMinus600Result,
+                              int8_t& internalTemperature) {
+    pressureMinus600Result = 0;
+    bmpLastTemperatureValid = false;
     if (!bmpReady) {
-        return 0;
+        internalTemperature = getCachedTempInternal();
+        return;
+    }
+
+    float temperature = bmp->readTemperature();
+    if (!isnan(temperature)) {
+        bmpLastTemperature = temperature;
+        bmpLastTemperatureValid = true;
     }
 
     float pressure = bmp->readPressure();
-    if (isnan(pressure) || pressure <= 0) {
-        return 0;
+    if (!isnan(pressure) && pressure > 0) {
+        int16_t pressureMm = (int16_t) round(pressure / 133.3);
+        if (pressureMm > 600 && pressureMm <= 855) {
+            pressureMinus600Result = (uint8_t) (pressureMm - 600);
+        }
     }
 
-    int16_t pressureMm = (int16_t) round(pressure / 133.3);
-    if (pressureMm <= 600 || pressureMm > 855) {
-        return 0;
-    }
-
-    return (uint8_t) (pressureMm - 600);
+    internalTemperature = getCachedTempInternal();
 }
 
-int8_t SensorsProvider::readTempInternal() {
-    float humidity;
-    float temp_dht;
-    if (!readDht11(&humidity, &temp_dht)) {
-        temp_dht = NAN;
-    }
-    float temp_bmp = bmpReady ? bmp->readTemperature() : NAN;
-
+int8_t SensorsProvider::getCachedTempInternal() {
     float temp;
-    if (!isnan(temp_dht) && !isnan(temp_bmp)) {
-        temp = (temp_dht + temp_bmp) / 2.0;
-    } else if (!isnan(temp_bmp)) {
-        temp = temp_bmp;
-    } else if (!isnan(temp_dht)) {
-        temp = temp_dht;
+    if (dhtLastReadValid && bmpLastTemperatureValid) {
+        temp = (dhtLastTemperature + bmpLastTemperature) / 2.0;
+    } else if (bmpLastTemperatureValid) {
+        temp = bmpLastTemperature;
+    } else if (dhtLastReadValid) {
+        temp = dhtLastTemperature;
     } else {
         return TEMP_NONE;
     }
@@ -155,8 +158,8 @@ bool SensorsProvider::readDht11(float *humidity, float *temperature) {
         return dhtLastReadValid;
     }
 
-    // Record the attempt before touching the wire, so a missing sensor is not
-    // retried immediately by readTempInternal() after readHumidity().
+    // Record the attempt before touching the wire so a missing sensor is not
+    // retried immediately if the scheduler calls again too soon.
     dhtLastAttemptAt = now;
     dhtLastReadValid = false;
 

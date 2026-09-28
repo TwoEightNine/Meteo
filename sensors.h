@@ -53,6 +53,8 @@ private:
     bool dhtLastReadValid = false;
     float dhtLastHumidity = 0;
     float dhtLastTemperature = 0;
+    bool bmpLastTemperatureValid = false;
+    float bmpLastTemperature = 0;
     Ds18b20ReadState ds18b20ReadState = Ds18b20ReadState::Idle;
     uint8_t ds18b20ReadAttempt = 0;
     uint32_t ds18b20Deadline = 0;
@@ -79,13 +81,13 @@ private:
     float getCurrentCorrectionBase(float value);
     float getCorrectedTempInternal(float value);
     float getCorrectedTempExternal(float value);
+    int8_t getCachedTempInternal();
 
 public:
     SensorsProvider();
     void setServiceCallback(void (*callback)());
-    uint8_t readHumidity();
-    int8_t readTempInternal();
-    uint8_t readPressureMinus600();
+    void readDht(uint8_t& humidity, int8_t& internalTemperature);
+    void readBmp(uint8_t& pressureMinus600, int8_t& internalTemperature);
     bool startExternalTemperatureRead();
     AsyncReadStatus pollExternalTemperature(int8_t& temperature);
     bool startCo2Read();

@@ -286,6 +286,17 @@ MainScreen::MainScreen(SensorsProvider *sensorsProvider, MeteoDisplay *tft)
     : sensorsProvider(sensorsProvider), tft(tft) {
     tft->setTextWrap(false);
     drawFrame();
+    drawBattery();
+    drawFocusPanel(true);
+    for (uint8_t row = 0; row < 4; ++row) {
+        drawSidePanel(row, true);
+    }
+
+    // Sensor initialization happens immediately before MainScreen is created.
+    // Treat construction as the last sensor activity so the first voltage
+    // sample also gets a full quiet period.
+    lastSensorActivityAt = millis();
+    sensorStartAllowedAt = lastSensorActivityAt;
 }
 
 void MainScreen::drawFrame() {
@@ -545,7 +556,8 @@ bool MainScreen::sensorChanged(uint8_t sensorMode, const Sensors& previous) cons
 
 void MainScreen::drawBattery() {
     const uint16_t millivolts = actualSensors.batteryMilliVolts;
-    int16_t percent = millivolts <= 3350 ? 0 :
+    int16_t percent = millivolts == 0 ? -1 :
+                      millivolts <= 3350 ? 0 :
                       millivolts >= 3900 ? 100 :
                       ((uint32_t) (millivolts - 3350) * 100 + 275) / 550;
     if (percent == renderedBatteryPercent) {
@@ -559,53 +571,34 @@ void MainScreen::drawBattery() {
     drawSoftVLine(tft, 408, 11, 13, GREEN);
     drawSoftVLine(tft, 429, 11, 13, GREEN);
     tft->fillRect(430, 14, 3, 7, GREEN);
-    tft->fillRect(411, 13, (16 * percent + 50) / 100, 9, GREEN);
+    if (percent >= 0) {
+        tft->fillRect(411, 13, (16 * percent + 50) / 100, 9, GREEN);
+    }
 
     char label[5];
-    snprintf(label, sizeof(label), "%d%%", (int) percent);
+    if (percent < 0) {
+        snprintf(label, sizeof(label), "--%%");
+    } else {
+        snprintf(label, sizeof(label), "%d%%", (int) percent);
+    }
     TextRect size = measureSmoothText(label, LABEL_FONT);
     drawSmoothText(tft, label, 477 - size.w, 10, LABEL_FONT, GREEN);
 }
 
-void MainScreen::readStandardSensors(Sensors& result) {
-    result.humidity = sensorsProvider->readHumidity();
-    result.temperatureInternal = sensorsProvider->readTempInternal();
-    result.pressureMinus600 = sensorsProvider->readPressureMinus600();
-
-    Serial.print(F("sensor standard complete: hum="));
-    Serial.print(result.humidity);
-    Serial.print(F(" ti="));
-    Serial.print(result.temperatureInternal);
-    Serial.print(F(" p="));
-    if (result.pressureMinus600 == 0) {
-        Serial.print(F("---"));
-    } else {
-        Serial.print(result.pressureMinus600 + 600);
-    }
-    Serial.println();
+bool MainScreen::deadlineReached(uint32_t now, uint32_t deadline) const {
+    return (int32_t) (now - deadline) >= 0;
 }
 
-void MainScreen::loop() {
-    unsigned long now = millis();
-    Sensors previous = actualSensors;
-
-    bool readStandardSensorsNow = !initialImmediateReadDone ||
-        now - lastStandardSensorsPoll >= STANDARD_SENSORS_POLL_INTERVAL_MS;
-    bool readBatteryNow = !initialImmediateReadDone ||
-        now - lastBatteryPoll >= BATTERY_POLL_INTERVAL_MS;
-
-    if (readStandardSensorsNow) {
-        readStandardSensors(actualSensors);
-        lastStandardSensorsPoll = millis();
+uint32_t MainScreen::taskInterval(SensorTask task) const {
+    if (task == SensorTask::Dht) {
+        return DHT_POLL_INTERVAL_MS;
     }
-    if (readBatteryNow) {
-        actualSensors.batteryMilliVolts = sensorsProvider->readBatteryMilliVolts();
-        lastBatteryPoll = millis();
-        Serial.print(F("sensor battery complete: "));
-        Serial.print(actualSensors.batteryMilliVolts);
-        Serial.println(F("mV"));
+    if (task == SensorTask::Bmp) {
+        return BMP_POLL_INTERVAL_MS;
     }
-    initialImmediateReadDone = true;
+    if (task == SensorTask::Co2) {
+        return CO2_POLL_INTERVAL_MS;
+    }
 
     bool temperaturesValid = actualSensors.temperatureInternal > 0 &&
                              actualSensors.temperatureInternal < 100 &&
@@ -615,97 +608,220 @@ void MainScreen::loop() {
     bool temperaturesFarApart = temperaturesValid &&
                                 (temperatureDifference <= -EXTERNAL_TEMP_DIFFERENCE_THRESHOLD_C ||
                                  temperatureDifference >= EXTERNAL_TEMP_DIFFERENCE_THRESHOLD_C);
-    unsigned long externalTempPollInterval = temperaturesFarApart
+    return temperaturesFarApart
         ? EXTERNAL_TEMP_FAR_POLL_INTERVAL_MS
         : EXTERNAL_TEMP_NEAR_POLL_INTERVAL_MS;
+}
 
-    bool externalTempDue = !externalTempPollCompleted ||
-        now - lastExternalTempPoll >= externalTempPollInterval;
-    if (!externalTempReadPending && externalTempDue &&
-        sensorsProvider->startExternalTemperatureRead()) {
-        externalTempReadPending = true;
-        Serial.println(F("sensor external-temp request started"));
+bool MainScreen::taskDue(SensorTask task, uint32_t now) const {
+    uint8_t index = (uint8_t) task;
+    if (index >= SENSOR_TASK_COUNT) {
+        return false;
+    }
+    return !sensorPollCompleted[index] ||
+           (uint32_t) (now - lastSensorPollAt[index]) >= taskInterval(task);
+}
+
+const __FlashStringHelper *MainScreen::taskName(SensorTask task) const {
+    switch (task) {
+        case SensorTask::Dht: return F("dht");
+        case SensorTask::Bmp: return F("bmp");
+        case SensorTask::ExternalTemperature: return F("external-temp");
+        case SensorTask::Co2: return F("co2");
+        default: return F("none");
+    }
+}
+
+void MainScreen::logTaskEvent(SensorTask task,
+                              const __FlashStringHelper *event) const {
+    Serial.print(F("scheduler t="));
+    Serial.print(millis());
+    Serial.print(F("ms sensor "));
+    Serial.print(taskName(task));
+    Serial.print(' ');
+    Serial.println(event);
+}
+
+bool MainScreen::qualityInputsReady() const {
+    return sensorPollCompleted[(uint8_t) SensorTask::Dht] &&
+           sensorPollCompleted[(uint8_t) SensorTask::Bmp] &&
+           sensorPollCompleted[(uint8_t) SensorTask::Co2];
+}
+
+void MainScreen::renderCompletedTask(SensorTask task, const Sensors& previous) {
+    if ((task == SensorTask::Dht || task == SensorTask::Bmp ||
+         task == SensorTask::Co2) && qualityInputsReady()) {
+        quality = calculateQuality(actualSensors);
+        updateQuality();
     }
 
-    bool co2Due = !co2PollCompleted || now - lastCo2Poll >= CO2_POLL_INTERVAL_MS;
-    if (!co2ReadPending && co2Due && sensorsProvider->startCo2Read()) {
-        co2ReadPending = true;
-        Serial.println(F("sensor co2 request started"));
+    if (sensorChanged(mode, previous)) {
+        drawFocusPanel(false);
+    }
+    for (uint8_t row = 0; row < 4; ++row) {
+        if (sensorChanged(sideModes[row], previous)) {
+            drawSidePanel(row, false);
+        }
+    }
+}
+
+void MainScreen::completeSensorTask(SensorTask task, const Sensors& previous) {
+    uint32_t completedAt = millis();
+    uint8_t index = (uint8_t) task;
+    sensorPollCompleted[index] = true;
+    lastSensorPollAt[index] = completedAt;
+    lastSensorActivityAt = completedAt;
+    sensorStartAllowedAt = completedAt + SENSOR_POLL_GAP_MS;
+    activeSensorTask = SensorTask::None;
+    nextSensorTaskIndex = (index + 1) % SENSOR_TASK_COUNT;
+    logTaskEvent(task, F("complete"));
+    renderCompletedTask(task, previous);
+}
+
+void MainScreen::startSensorTask(SensorTask task) {
+    Sensors previous = actualSensors;
+    activeSensorTask = task;
+    logTaskEvent(task, F("start"));
+
+    switch (task) {
+        case SensorTask::Dht:
+            sensorsProvider->readDht(actualSensors.humidity,
+                                     actualSensors.temperatureInternal);
+            completeSensorTask(task, previous);
+            return;
+        case SensorTask::Bmp:
+            sensorsProvider->readBmp(actualSensors.pressureMinus600,
+                                     actualSensors.temperatureInternal);
+            completeSensorTask(task, previous);
+            return;
+        case SensorTask::ExternalTemperature:
+            if (!sensorsProvider->startExternalTemperatureRead()) {
+                activeSensorTask = SensorTask::None;
+                sensorStartAllowedAt = millis() + SENSOR_POLL_GAP_MS;
+                logTaskEvent(task, F("start-rejected"));
+            }
+            return;
+        case SensorTask::Co2:
+            if (!sensorsProvider->startCo2Read()) {
+                activeSensorTask = SensorTask::None;
+                sensorStartAllowedAt = millis() + SENSOR_POLL_GAP_MS;
+                logTaskEvent(task, F("start-rejected"));
+            }
+            return;
+        default:
+            activeSensorTask = SensorTask::None;
+            return;
+    }
+}
+
+bool MainScreen::pollActiveSensorTask() {
+    if (activeSensorTask == SensorTask::None) {
+        return false;
     }
 
-    bool externalTempSucceeded = false;
-    if (externalTempReadPending) {
+    Sensors previous = actualSensors;
+    AsyncReadStatus status = AsyncReadStatus::Idle;
+    if (activeSensorTask == SensorTask::ExternalTemperature) {
         int8_t temperature;
-        AsyncReadStatus status = sensorsProvider->pollExternalTemperature(temperature);
-        if (status == AsyncReadStatus::Success || status == AsyncReadStatus::Failure) {
-            externalTempReadPending = false;
-            externalTempPollCompleted = true;
-            lastExternalTempPoll = millis();
-            if (status == AsyncReadStatus::Success) {
-                actualSensors.temperatureExternal = temperature;
-                externalTempSucceeded = true;
-                Serial.print(F("sensor external-temp complete: "));
-                Serial.println(temperature);
-            } else if (actualSensors.temperatureExternal == TEMP_EXTERNAL_NONE) {
-                Serial.println(F("sensor external-temp failed; no valid value"));
-            } else {
-                Serial.println(F("sensor external-temp failed; keeping last value"));
-            }
+        status = sensorsProvider->pollExternalTemperature(temperature);
+        if (status == AsyncReadStatus::Success) {
+            actualSensors.temperatureExternal = temperature;
+            Serial.print(F("sensor external-temp value="));
+            Serial.println(temperature);
         }
-    }
-
-    bool co2Succeeded = false;
-    if (co2ReadPending) {
+    } else if (activeSensorTask == SensorTask::Co2) {
         uint16_t ppm;
-        AsyncReadStatus status = sensorsProvider->pollCo2(ppm);
-        if (status == AsyncReadStatus::Success || status == AsyncReadStatus::Failure) {
-            co2ReadPending = false;
-            co2PollCompleted = true;
-            lastCo2Poll = millis();
-            if (status == AsyncReadStatus::Success) {
-                actualSensors.co2ppm = ppm;
-                co2Succeeded = true;
-                Serial.print(F("sensor co2 complete: "));
-                Serial.print(ppm);
-                Serial.println(F("ppm"));
-            } else if (actualSensors.co2ppm == CO2_NONE) {
-                Serial.println(F("sensor co2 failed; no valid value"));
-            } else {
-                Serial.println(F("sensor co2 failed; keeping last value"));
-            }
+        status = sensorsProvider->pollCo2(ppm);
+        if (status == AsyncReadStatus::Success) {
+            actualSensors.co2ppm = ppm;
+            Serial.print(F("sensor co2 value="));
+            Serial.print(ppm);
+            Serial.println(F("ppm"));
         }
     }
 
-    if (!dashboardDrawn) {
-        if (externalTempPollCompleted && co2PollCompleted) {
-            quality = calculateQuality(actualSensors);
-            updateQuality();
-            drawBattery();
-            drawFocusPanel(true);
-            for (uint8_t row = 0; row < 4; ++row) {
-                drawSidePanel(row, true);
-            }
-            dashboardDrawn = true;
-        }
-    } else {
-        if (readStandardSensorsNow || co2Succeeded) {
-            quality = calculateQuality(actualSensors);
-            updateQuality();
-        }
-        if (readBatteryNow) {
-            drawBattery();
-        }
+    if (status == AsyncReadStatus::Pending) {
+        return true;
+    }
 
-        if (readStandardSensorsNow || externalTempSucceeded || co2Succeeded) {
-            if (sensorChanged(mode, previous)) {
-                drawFocusPanel(false);
-            }
-            for (uint8_t row = 0; row < 4; ++row) {
-                if (sensorChanged(sideModes[row], previous)) {
-                    drawSidePanel(row, false);
-                }
-            }
+    SensorTask completedTask = activeSensorTask;
+    if (status == AsyncReadStatus::Failure) {
+        Serial.print(F("sensor "));
+        Serial.print(taskName(completedTask));
+        Serial.println(F(" failed; keeping last value"));
+    } else if (status == AsyncReadStatus::Idle) {
+        Serial.print(F("sensor "));
+        Serial.print(taskName(completedTask));
+        Serial.println(F(" ended unexpectedly; keeping last value"));
+    }
+    completeSensorTask(completedTask, previous);
+    return true;
+}
+
+bool MainScreen::pollBatteryIfDue(uint32_t now) {
+    bool batteryDue = !batteryPollCompleted ||
+        (uint32_t) (now - lastBatteryPollAt) >= BATTERY_POLL_INTERVAL_MS;
+    if (!batteryDue) {
+        return false;
+    }
+
+    uint32_t quietWindowEndsAt = lastSensorActivityAt + BATTERY_SENSOR_GUARD_MS;
+    if (!deadlineReached(now, quietWindowEndsAt)) {
+        if (!batteryQuietWaitLogged) {
+            Serial.print(F("scheduler t="));
+            Serial.print(now);
+            Serial.println(F("ms voltage waiting-for-quiet-window"));
+            batteryQuietWaitLogged = true;
         }
+        return true;
+    }
+
+    batteryQuietWaitLogged = false;
+    Serial.print(F("scheduler t="));
+    Serial.print(millis());
+    Serial.println(F("ms voltage start"));
+    actualSensors.batteryMilliVolts = sensorsProvider->readBatteryMilliVolts();
+    uint32_t completedAt = millis();
+    lastBatteryPollAt = completedAt;
+    batteryPollCompleted = true;
+    sensorStartAllowedAt = completedAt + BATTERY_SENSOR_GUARD_MS;
+    Serial.print(F("scheduler t="));
+    Serial.print(completedAt);
+    Serial.print(F("ms voltage complete value="));
+    Serial.print(actualSensors.batteryMilliVolts);
+    Serial.println(F("mV"));
+    drawBattery();
+    return true;
+}
+
+SensorTask MainScreen::nextDueSensorTask(uint32_t now) {
+    for (uint8_t offset = 0; offset < SENSOR_TASK_COUNT; ++offset) {
+        uint8_t index = (nextSensorTaskIndex + offset) % SENSOR_TASK_COUNT;
+        SensorTask task = (SensorTask) index;
+        if (taskDue(task, now)) {
+            return task;
+        }
+    }
+    return SensorTask::None;
+}
+
+void MainScreen::loop() {
+    if (pollActiveSensorTask()) {
+        return;
+    }
+
+    uint32_t now = millis();
+    if (pollBatteryIfDue(now)) {
+        return;
+    }
+
+    if (!deadlineReached(now, sensorStartAllowedAt)) {
+        return;
+    }
+
+    SensorTask task = nextDueSensorTask(now);
+    if (task != SensorTask::None) {
+        startSensorTask(task);
     }
 }
 
@@ -736,9 +852,7 @@ void MainScreen::onTouch(uint16_t x, uint16_t y) {
     }
 
     mode = selected;
-    if (dashboardDrawn) {
-        drawFocusPanel(true);
-    }
+    drawFocusPanel(true);
 
     Serial.print(F("touch: event=select mode="));
     Serial.println(modeLabel(mode));
