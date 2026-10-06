@@ -280,6 +280,20 @@ TextRect drawSmoothText(MeteoDisplay *tft, const char *text, int16_t x, int16_t 
     }
     return {x, y, (uint16_t) layout.width, (uint16_t) height};
 }
+
+template <typename T>
+void retainValidValue(SensorValue<T>& stored, const SensorValue<T>& incoming) {
+    if (incoming.valid) {
+        stored = incoming;
+    }
+}
+
+template <typename T>
+bool sensorValueChanged(const SensorValue<T>& current,
+                        const SensorValue<T>& previous) {
+    return current.valid != previous.valid ||
+           (current.valid && current.value != previous.value);
+}
 }
 
 MainScreen::MainScreen(SensorsProvider *sensorsProvider, MeteoDisplay *tft)
@@ -338,40 +352,43 @@ void MainScreen::drawLabel(uint8_t sensorMode, int16_t x, int16_t y, bool focus)
 void MainScreen::formatValue(uint8_t sensorMode, char *buffer, size_t bufferSize) {
     switch (sensorMode) {
         case MODE_TEMP_INT:
-            if (actualSensors.temperatureInternal <= 0 ||
-                actualSensors.temperatureInternal >= 100) {
+            if (!actualSensors.temperatureInternal.valid) {
                 snprintf(buffer, bufferSize, "--");
             } else {
-                snprintf(buffer, bufferSize, "%d", (int) actualSensors.temperatureInternal);
+                snprintf(buffer, bufferSize, "%d",
+                         (int) actualSensors.temperatureInternal.value);
             }
             break;
         case MODE_TEMP_EXT:
-            if (actualSensors.temperatureExternal == TEMP_EXTERNAL_NONE) {
+            if (!actualSensors.temperatureExternal.valid) {
                 snprintf(buffer, bufferSize, "--");
             } else {
-                snprintf(buffer, bufferSize, "%d", (int) actualSensors.temperatureExternal);
+                snprintf(buffer, bufferSize, "%d",
+                         (int) actualSensors.temperatureExternal.value);
             }
             break;
         case MODE_PRESSURE:
-            if (actualSensors.pressureMinus600 == 0) {
+            if (!actualSensors.pressureMmHg.valid) {
                 snprintf(buffer, bufferSize, "--");
             } else {
-                uint32_t mmHg = (uint32_t) actualSensors.pressureMinus600 + 600;
-                snprintf(buffer, bufferSize, "%lu", (unsigned long) mmHg);
+                snprintf(buffer, bufferSize, "%u",
+                         (unsigned int) actualSensors.pressureMmHg.value);
             }
             break;
         case MODE_CO2:
-            if (actualSensors.co2ppm == CO2_NONE) {
+            if (!actualSensors.co2ppm.valid) {
                 snprintf(buffer, bufferSize, "--");
             } else {
-                snprintf(buffer, bufferSize, "%u", (unsigned int) actualSensors.co2ppm);
+                snprintf(buffer, bufferSize, "%u",
+                         (unsigned int) actualSensors.co2ppm.value);
             }
             break;
         case MODE_HUMIDITY:
-            if (actualSensors.humidity == HUMID_NONE) {
+            if (!actualSensors.humidity.valid) {
                 snprintf(buffer, bufferSize, "--");
             } else {
-                snprintf(buffer, bufferSize, "%u", (unsigned int) actualSensors.humidity);
+                snprintf(buffer, bufferSize, "%u",
+                         (unsigned int) actualSensors.humidity.value);
             }
             break;
         default:
@@ -556,23 +573,26 @@ void MainScreen::drawSidePanel(uint8_t row, bool fullPanel) {
 bool MainScreen::sensorChanged(uint8_t sensorMode, const Sensors& previous) const {
     switch (sensorMode) {
         case MODE_TEMP_INT:
-            return actualSensors.temperatureInternal != previous.temperatureInternal;
+            return sensorValueChanged(actualSensors.temperatureInternal,
+                                      previous.temperatureInternal);
         case MODE_TEMP_EXT:
-            return actualSensors.temperatureExternal != previous.temperatureExternal;
+            return sensorValueChanged(actualSensors.temperatureExternal,
+                                      previous.temperatureExternal);
         case MODE_PRESSURE:
-            return actualSensors.pressureMinus600 != previous.pressureMinus600;
+            return sensorValueChanged(actualSensors.pressureMmHg,
+                                      previous.pressureMmHg);
         case MODE_CO2:
-            return actualSensors.co2ppm != previous.co2ppm;
+            return sensorValueChanged(actualSensors.co2ppm, previous.co2ppm);
         case MODE_HUMIDITY:
-            return actualSensors.humidity != previous.humidity;
+            return sensorValueChanged(actualSensors.humidity, previous.humidity);
         default:
             return false;
     }
 }
 
 void MainScreen::drawBattery() {
-    const uint16_t millivolts = actualSensors.batteryMilliVolts;
-    int16_t percent = millivolts == 0 ? -1 :
+    const uint16_t millivolts = actualSensors.batteryMilliVolts.value;
+    int16_t percent = !actualSensors.batteryMilliVolts.valid ? -1 :
                       millivolts <= 3350 ? 0 :
                       millivolts >= 3900 ? 100 :
                       ((uint32_t) (millivolts - 3350) * 100 + 275) / 550;
@@ -623,11 +643,11 @@ uint32_t MainScreen::taskInterval(SensorTask task) const {
         return CO2_POLL_INTERVAL_MS;
     }
 
-    bool temperaturesValid = actualSensors.temperatureInternal > 0 &&
-                             actualSensors.temperatureInternal < 100 &&
-                             actualSensors.temperatureExternal != TEMP_EXTERNAL_NONE;
-    int16_t temperatureDifference = (int16_t) actualSensors.temperatureInternal -
-                                    (int16_t) actualSensors.temperatureExternal;
+    bool temperaturesValid = actualSensors.temperatureInternal.valid &&
+                             actualSensors.temperatureExternal.valid;
+    int16_t temperatureDifference =
+        (int16_t) actualSensors.temperatureInternal.value -
+        (int16_t) actualSensors.temperatureExternal.value;
     bool temperaturesFarApart = temperaturesValid &&
                                 (temperatureDifference <= -EXTERNAL_TEMP_DIFFERENCE_THRESHOLD_C ||
                                  temperatureDifference >= EXTERNAL_TEMP_DIFFERENCE_THRESHOLD_C);
@@ -666,9 +686,9 @@ void MainScreen::logTaskEvent(SensorTask task,
 }
 
 bool MainScreen::qualityInputsReady() const {
-    return sensorPollCompleted[(uint8_t) SensorTask::Dht] &&
-           sensorPollCompleted[(uint8_t) SensorTask::Bmp] &&
-           sensorPollCompleted[(uint8_t) SensorTask::Co2];
+    return actualSensors.humidity.valid &&
+           actualSensors.pressureMmHg.valid &&
+           actualSensors.co2ppm.valid;
 }
 
 void MainScreen::renderCompletedTask(SensorTask task, const Sensors& previous) {
@@ -707,16 +727,26 @@ void MainScreen::startSensorTask(SensorTask task) {
     logTaskEvent(task, F("start"));
 
     switch (task) {
-        case SensorTask::Dht:
-            sensorsProvider->readDht(actualSensors.humidity,
-                                     actualSensors.temperatureInternal);
+        case SensorTask::Dht: {
+            SensorValue<uint8_t> humidity;
+            SensorValue<int8_t> internalTemperature;
+            sensorsProvider->readDht(humidity, internalTemperature);
+            retainValidValue(actualSensors.humidity, humidity);
+            retainValidValue(actualSensors.temperatureInternal,
+                             internalTemperature);
             completeSensorTask(task, previous);
             return;
-        case SensorTask::Bmp:
-            sensorsProvider->readBmp(actualSensors.pressureMinus600,
-                                     actualSensors.temperatureInternal);
+        }
+        case SensorTask::Bmp: {
+            SensorValue<uint16_t> pressureMmHg;
+            SensorValue<int8_t> internalTemperature;
+            sensorsProvider->readBmp(pressureMmHg, internalTemperature);
+            retainValidValue(actualSensors.pressureMmHg, pressureMmHg);
+            retainValidValue(actualSensors.temperatureInternal,
+                             internalTemperature);
             completeSensorTask(task, previous);
             return;
+        }
         case SensorTask::ExternalTemperature:
             if (!sensorsProvider->startExternalTemperatureRead()) {
                 activeSensorTask = SensorTask::None;
@@ -745,20 +775,20 @@ bool MainScreen::pollActiveSensorTask() {
     Sensors previous = actualSensors;
     AsyncReadStatus status = AsyncReadStatus::Idle;
     if (activeSensorTask == SensorTask::ExternalTemperature) {
-        int8_t temperature;
+        SensorValue<int8_t> temperature;
         status = sensorsProvider->pollExternalTemperature(temperature);
-        if (status == AsyncReadStatus::Success) {
-            actualSensors.temperatureExternal = temperature;
+        if (status == AsyncReadStatus::Success && temperature.valid) {
+            retainValidValue(actualSensors.temperatureExternal, temperature);
             Serial.print(F("sensor external-temp value="));
-            Serial.println(temperature);
+            Serial.println(temperature.value);
         }
     } else if (activeSensorTask == SensorTask::Co2) {
-        uint16_t ppm;
+        SensorValue<uint16_t> ppm;
         status = sensorsProvider->pollCo2(ppm);
-        if (status == AsyncReadStatus::Success) {
-            actualSensors.co2ppm = ppm;
+        if (status == AsyncReadStatus::Success && ppm.valid) {
+            retainValidValue(actualSensors.co2ppm, ppm);
             Serial.print(F("sensor co2 value="));
-            Serial.print(ppm);
+            Serial.print(ppm.value);
             Serial.println(F("ppm"));
         }
     }
@@ -803,10 +833,9 @@ bool MainScreen::pollBatteryIfDue(uint32_t now) {
     Serial.print(F("scheduler t="));
     Serial.print(millis());
     Serial.println(F("ms voltage start"));
-    uint16_t batteryMilliVolts = sensorsProvider->readBatteryMilliVolts();
-    if (batteryMilliVolts != 0) {
-        actualSensors.batteryMilliVolts = batteryMilliVolts;
-    }
+    SensorValue<uint16_t> batteryMilliVolts =
+        sensorsProvider->readBatteryMilliVolts();
+    retainValidValue(actualSensors.batteryMilliVolts, batteryMilliVolts);
     uint32_t completedAt = millis();
     lastBatteryPollAt = completedAt;
     batteryPollCompleted = true;
@@ -814,8 +843,12 @@ bool MainScreen::pollBatteryIfDue(uint32_t now) {
     Serial.print(F("scheduler t="));
     Serial.print(completedAt);
     Serial.print(F("ms voltage complete value="));
-    Serial.print(batteryMilliVolts);
-    Serial.println(F("mV"));
+    if (batteryMilliVolts.valid) {
+        Serial.print(batteryMilliVolts.value);
+        Serial.println(F("mV"));
+    } else {
+        Serial.println(F("unavailable"));
+    }
     drawBattery();
     return true;
 }
@@ -884,23 +917,23 @@ void MainScreen::onTouch(uint16_t x, uint16_t y) {
     Serial.println(modeLabel(mode));
 }
 
-uint8_t MainScreen::calculateQuality(Sensors& sensors) {
+uint8_t MainScreen::calculateQuality(const Sensors& sensors) {
     uint8_t humWarnState = 100 - getWarningRank(
-        HUM_WARN_MIN, HUM_URGENT_MIN,
-        HUM_WARN_MAX, HUM_URGENT_MAX,
-        sensors.humidity
+        HUM_WARN_MIN_PERCENT, HUM_URGENT_MIN_PERCENT,
+        HUM_WARN_MAX_PERCENT, HUM_URGENT_MAX_PERCENT,
+        sensors.humidity.value
     );
 
     uint8_t presWarnState = 100 - getWarningRank(
-        PRES_WARN_MIN, PRES_URGENT_MIN,
-        PRES_WARN_MAX, PRES_URGENT_MAX,
-        sensors.pressureMinus600
+        PRES_WARN_MIN_MMHG, PRES_URGENT_MIN_MMHG,
+        PRES_WARN_MAX_MMHG, PRES_URGENT_MAX_MMHG,
+        sensors.pressureMmHg.value
     );
 
     uint8_t co2WarnState = 100 - getWarningRank(
-        CO2_WARN_MIN, CO2_URGENT_MIN,
-        CO2_WARN_MAX, CO2_URGENT_MAX,
-        sensors.co2ppm
+        CO2_WARN_MIN_PPM, CO2_URGENT_MIN_PPM,
+        CO2_WARN_MAX_PPM, CO2_URGENT_MAX_PPM,
+        sensors.co2ppm.value
     );
 
     uint8_t summary = (presWarnState + humWarnState + co2WarnState) / 3;

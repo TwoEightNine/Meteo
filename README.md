@@ -26,9 +26,26 @@ The sensor UI uses a dark 480x320 instrument layout: a large focused metric on t
   - optional DS18B20 external temperature sensor
 - DS18B20 conversions and MH-Z19 UART responses are acquired asynchronously, so their wait times do not pause touch handling or display updates.
 - Physical sensors are polled by a cooperative round-robin scheduler. Only one sensor transaction runs at a time, and completed transactions are separated by one second to avoid coincident current spikes.
+- Every measurement carries explicit valid/invalid state. Invalid startup readings display a placeholder line, while later invalid or missing samples leave the last valid value on screen.
+- The MH-Z19 startup default of `500 ppm` is ignored until the sensor first reports a valid non-500 reading. After that initialization, `500 ppm` is accepted as a real measurement.
 - Battery voltage is sampled every 15 seconds or later, with no sensor activity for at least two seconds before and after the ADC reading.
 - Touch input is sampled cooperatively during long display transfers and sensor waits. Large screen fills are sent in bounded SPI chunks so short taps can be latched while the UI redraws.
 - Green/yellow/red status line based on the existing humidity, pressure, and CO2 quality thresholds.
+
+### Enforced Measurement Ranges
+
+Samples outside these inclusive limits are invalid. An invalid sample leaves the last valid value on screen; if there is no previous valid value, the UI keeps its placeholder line.
+
+| Sensor | Metric | Accepted range | Display representation |
+|---|---|---:|---|
+| DHT11, legacy range | Relative humidity | `20–90% RH` | Whole percent |
+| DHT11, legacy range | Temperature | `0–50°C` | Whole degrees after correction |
+| BMP280 | Temperature | `−40–85°C` | Whole degrees after correction |
+| BMP280 | Pressure | `30000–110000 Pa` (`300–1100 hPa`) | Absolute `225–825 mmHg` after conversion |
+| DS18B20 | Temperature | `−55–125°C` | Whole degrees after correction |
+| MH-Z19B, 5000 ppm variant | CO2 | `400–5000 ppm` | Integer ppm |
+
+The limits follow the selected hardware variants' documentation: [Aosong DHT11](https://aosong.com/userfiles/files/media/DHT11%E6%95%B0%E5%AD%97%E6%B8%A9%E6%B9%BF%E5%BA%A6%E4%BC%A0%E6%84%9F%E5%99%A8%E6%A8%A1%E5%9D%97.pdf), [Bosch BMP280](https://www.bosch-sensortec.com/products/environmental-sensors/pressure-sensors/bmp280/), [Analog Devices DS18B20](https://www.analog.com/media/en/technical-documentation/data-sheets/ds18b20.pdf), and [Winsen MH-Z19B](https://www.winsen-sensor.com/d/files/manual/mh-z19b.pdf).
 
 ## Hardware
 
@@ -97,7 +114,7 @@ The divider output must never exceed the ESP32-C6 ADC input range. With the defa
 The firmware converts the measured ADC voltage back to battery voltage by multiplying it by `2`.
 
 The UI estimates battery percentage linearly from the measured voltage: `3.35 V` is `0%`, `3.90 V` is `100%`, and values outside that range are clamped. The battery icon and percentage appear only in the header.
-At startup the dashboard initially shows placeholders. The first battery reading waits for a two-second quiet period after sensor initialization, and sensor polling remains paused for another two seconds afterward. Later battery readings use the same quiet-window rule and may therefore occur later than their nominal 15-second interval when a sensor transaction is still active.
+At startup the dashboard initially shows placeholders. A placeholder remains until that measurement produces a valid sample; temporary errors after that point retain the last valid value. The first battery reading waits for a two-second quiet period after sensor initialization, and sensor polling remains paused for another two seconds afterward. Later battery readings use the same quiet-window rule and may therefore occur later than their nominal 15-second interval when a sensor transaction is still active.
 
 ## Software Dependencies
 

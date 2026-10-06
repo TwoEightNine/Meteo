@@ -25,20 +25,20 @@
 #define SENSOR_POLL_GAP_MS 1000
 #define BATTERY_SENSOR_GUARD_MS 2000
 
-#define HUM_WARN_MIN 40
-#define HUM_WARN_MAX 60
-#define HUM_URGENT_MIN 30
-#define HUM_URGENT_MAX 70
+#define HUM_WARN_MIN_PERCENT 40
+#define HUM_WARN_MAX_PERCENT 60
+#define HUM_URGENT_MIN_PERCENT 30
+#define HUM_URGENT_MAX_PERCENT 70
 // normal 750 samara
 // normal 720 tbilisi
-#define PRES_WARN_MIN 90 // normal - 600 - 30
-#define PRES_URGENT_MIN 70 // normal - 600 - 50
-#define PRES_WARN_MAX 150 // normal - 600 + 30
-#define PRES_URGENT_MAX 170 // normal - 600 + 50
-#define CO2_WARN_MIN 0
-#define CO2_URGENT_MIN 0
-#define CO2_WARN_MAX 1000
-#define CO2_URGENT_MAX 2000
+#define PRES_WARN_MIN_MMHG 690
+#define PRES_URGENT_MIN_MMHG 670
+#define PRES_WARN_MAX_MMHG 750
+#define PRES_URGENT_MAX_MMHG 770
+#define CO2_WARN_MIN_PPM 0
+#define CO2_URGENT_MIN_PPM 0
+#define CO2_WARN_MAX_PPM 1000
+#define CO2_URGENT_MAX_PPM 2000
 
 #define QUALITY_BEST 4
 #define QUALITY_GOOD 3
@@ -47,12 +47,12 @@
 #define QUALITY_WORST 0
 
 struct Sensors {
-    uint8_t humidity;
-    int8_t temperatureInternal;
-    uint8_t pressureMinus600; // extra over 600
-    int8_t temperatureExternal;
-    uint16_t co2ppm;
-    uint16_t batteryMilliVolts;
+    SensorValue<uint8_t> humidity;
+    SensorValue<int8_t> temperatureInternal;
+    SensorValue<uint16_t> pressureMmHg;
+    SensorValue<int8_t> temperatureExternal;
+    SensorValue<uint16_t> co2ppm;
+    SensorValue<uint16_t> batteryMilliVolts;
 };
 
 struct TextRect {
@@ -96,14 +96,7 @@ private:
     TextRect valueBounds[5] = {};
     TextRect unitBounds[5] = {};
 
-    Sensors actualSensors = {
-        HUMID_NONE,
-        TEMP_NONE,
-        0,
-        TEMP_EXTERNAL_NONE,
-        CO2_NONE,
-        0
-    };
+    Sensors actualSensors = {};
 
     void drawFrame();
     void drawFocusPanel(bool fullPanel);
@@ -130,7 +123,7 @@ private:
     bool pollBatteryIfDue(uint32_t now);
     SensorTask nextDueSensorTask(uint32_t now);
     void updateQuality();
-    uint8_t calculateQuality(Sensors& sensors);
+    uint8_t calculateQuality(const Sensors& sensors);
     uint8_t getWarningRank(uint16_t warnMin, uint16_t urgentMin, uint16_t warnMax, uint16_t urgentMax, uint16_t value);
     uint8_t getWarningRank(uint16_t warn, uint16_t urgent, uint16_t value);
 
