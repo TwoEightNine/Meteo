@@ -408,6 +408,16 @@ TextRect MainScreen::drawUnit(uint8_t sensorMode, int16_t x, int16_t y, bool foc
 }
 
 TextRect MainScreen::drawSmoothValue(const char *number, uint16_t color) {
+    if (strcmp(number, "--") == 0) {
+        const uint16_t lineWidth = measureSmoothText("--", FOCUS_FONT).w;
+        const int16_t lineX = FOCUS_VALUE_X + (FOCUS_VALUE_W - lineWidth) / 2;
+        const int16_t lineY = FOCUS_VALUE_Y + FOCUS_VALUE_H / 2;
+        tft->fillRect(FOCUS_VALUE_X, FOCUS_VALUE_Y,
+                      FOCUS_VALUE_W, FOCUS_VALUE_H, BACKGROUND);
+        drawSoftHLine(tft, lineX, lineY, lineWidth, color);
+        return {lineX, (int16_t) (lineY - 1), lineWidth, 3};
+    }
+
     SmoothLayout layout = layoutText(number, FOCUS_FONT);
     if (!layout.count || layout.width <= 0) return {};
 
@@ -496,8 +506,14 @@ void MainScreen::drawValue(uint8_t slot, uint8_t sensorMode, bool focus) {
     int16_t rowY = SIDE_Y[row];
     int16_t numberX = SIDE_X + 18;
     int16_t numberY = rowY + 29 + (31 - measured.h) / 2;
-    valueBounds[slot] = drawSmoothText(tft, number, numberX, numberY,
-                                       *valueFont, color);
+    if (strcmp(number, "--") == 0) {
+        int16_t lineY = numberY + measured.h / 2;
+        drawSoftHLine(tft, numberX, lineY, measured.w, color);
+        valueBounds[slot] = {numberX, (int16_t) (lineY - 1), measured.w, 3};
+    } else {
+        valueBounds[slot] = drawSmoothText(tft, number, numberX, numberY,
+                                           *valueFont, color);
+    }
     TextRect unitMetrics = measureSmoothText(sensorMode == MODE_PRESSURE ? "mmHg" :
                                               sensorMode == MODE_CO2 ? "ppm" :
                                               sensorMode == MODE_HUMIDITY ? "%" : "C",
@@ -577,7 +593,14 @@ void MainScreen::drawBattery() {
 
     char label[5];
     if (percent < 0) {
-        snprintf(label, sizeof(label), "--%%");
+        TextRect percentSize = measureSmoothText("%", LABEL_FONT);
+        uint16_t lineWidth = measureSmoothText("--", LABEL_FONT).w;
+        int16_t labelX = 477 - percentSize.w - 1 - lineWidth;
+        int16_t lineY = 10 + percentSize.h / 2;
+        drawSoftHLine(tft, labelX, lineY, lineWidth, GREEN);
+        drawSmoothText(tft, "%", labelX + lineWidth + 1, 10,
+                       LABEL_FONT, GREEN);
+        return;
     } else {
         snprintf(label, sizeof(label), "%d%%", (int) percent);
     }
@@ -780,7 +803,10 @@ bool MainScreen::pollBatteryIfDue(uint32_t now) {
     Serial.print(F("scheduler t="));
     Serial.print(millis());
     Serial.println(F("ms voltage start"));
-    actualSensors.batteryMilliVolts = sensorsProvider->readBatteryMilliVolts();
+    uint16_t batteryMilliVolts = sensorsProvider->readBatteryMilliVolts();
+    if (batteryMilliVolts != 0) {
+        actualSensors.batteryMilliVolts = batteryMilliVolts;
+    }
     uint32_t completedAt = millis();
     lastBatteryPollAt = completedAt;
     batteryPollCompleted = true;
@@ -788,7 +814,7 @@ bool MainScreen::pollBatteryIfDue(uint32_t now) {
     Serial.print(F("scheduler t="));
     Serial.print(completedAt);
     Serial.print(F("ms voltage complete value="));
-    Serial.print(actualSensors.batteryMilliVolts);
+    Serial.print(batteryMilliVolts);
     Serial.println(F("mV"));
     drawBattery();
     return true;
@@ -834,16 +860,9 @@ void MainScreen::onTouch(uint16_t x, uint16_t y) {
     uint8_t selected;
     if (x <= FOCUS_RIGHT) {
         selected = MODE_TEMP_INT;
-    } else if (x >= SIDE_X && x <= SIDE_RIGHT) {
-        if (y > CONTENT_BOTTOM) {
-            Serial.println(F("touch: event=none"));
-            return;
-        }
+    } else {
         uint8_t row = y < 102 ? 0 : y < 174 ? 1 : y < 246 ? 2 : 3;
         selected = sideModes[row];
-    } else {
-        Serial.println(F("touch: event=none"));
-        return;
     }
 
     if (selected == mode) {

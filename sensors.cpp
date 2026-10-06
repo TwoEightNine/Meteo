@@ -85,20 +85,27 @@ void SensorsProvider::cooperativeDelay(uint32_t durationMs) {
 void SensorsProvider::readDht(uint8_t& humidityResult, int8_t& internalTemperature) {
     float humidity;
     float temperature;
-    if (!readDht11(&humidity, &temperature)) {
-        humidityResult = HUMID_NONE;
-    } else {
-        humidityResult = (uint8_t) getCorrectedHumidity(humidity);
+    if (readDht11(&humidity, &temperature)) {
+        uint8_t correctedHumidity = (uint8_t) getCorrectedHumidity(humidity);
+        if (correctedHumidity != HUMID_NONE && correctedHumidity <= 100) {
+            humidityResult = correctedHumidity;
+        }
     }
-    internalTemperature = getCachedTempInternal();
+
+    int8_t cachedTemperature = getCachedTempInternal();
+    if (cachedTemperature > 0 && cachedTemperature < 100) {
+        internalTemperature = cachedTemperature;
+    }
 }
 
 void SensorsProvider::readBmp(uint8_t& pressureMinus600Result,
                               int8_t& internalTemperature) {
-    pressureMinus600Result = 0;
     bmpLastTemperatureValid = false;
     if (!bmpReady) {
-        internalTemperature = getCachedTempInternal();
+        int8_t cachedTemperature = getCachedTempInternal();
+        if (cachedTemperature > 0 && cachedTemperature < 100) {
+            internalTemperature = cachedTemperature;
+        }
         return;
     }
 
@@ -116,7 +123,10 @@ void SensorsProvider::readBmp(uint8_t& pressureMinus600Result,
         }
     }
 
-    internalTemperature = getCachedTempInternal();
+    int8_t cachedTemperature = getCachedTempInternal();
+    if (cachedTemperature > 0 && cachedTemperature < 100) {
+        internalTemperature = cachedTemperature;
+    }
 }
 
 int8_t SensorsProvider::getCachedTempInternal() {
