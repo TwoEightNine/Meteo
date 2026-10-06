@@ -857,21 +857,28 @@ void MainScreen::onTouch(uint16_t x, uint16_t y) {
         return;
     }
 
-    uint8_t selected;
     if (x <= FOCUS_RIGHT) {
-        selected = MODE_TEMP_INT;
-    } else {
-        uint8_t row = y < 102 ? 0 : y < 174 ? 1 : y < 246 ? 2 : 3;
-        selected = sideModes[row];
+        Serial.println(F("touch: event=focus-inert"));
+        return;
     }
 
+    uint8_t row = y < 102 ? 0 : y < 174 ? 1 : y < 246 ? 2 : 3;
+    uint8_t selected = sideModes[row];
     if (selected == mode) {
         Serial.println(F("touch: event=already-selected"));
         return;
     }
 
+    bool swapsTemperature = selected == MODE_TEMP_INT || selected == MODE_TEMP_EXT;
     mode = selected;
+    if (swapsTemperature) {
+        sideModes[row] = selected == MODE_TEMP_INT ? MODE_TEMP_EXT : MODE_TEMP_INT;
+    }
+
     drawFocusPanel(true);
+    if (swapsTemperature) {
+        drawSidePanel(row, true);
+    }
 
     Serial.print(F("touch: event=select mode="));
     Serial.println(modeLabel(mode));

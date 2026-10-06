@@ -79,7 +79,7 @@ private:
     MeteoDisplay *tft;
 
     uint8_t mode = MODE_TEMP_INT;
-    const uint8_t sideModes[4] = {MODE_TEMP_EXT, MODE_PRESSURE, MODE_CO2, MODE_HUMIDITY};
+    uint8_t sideModes[4] = {MODE_CO2, MODE_HUMIDITY, MODE_PRESSURE, MODE_TEMP_EXT};
     uint8_t quality = QUALITY_WORST;
     uint8_t renderedQuality = 255;
     int16_t renderedBatteryPercent = -2;
