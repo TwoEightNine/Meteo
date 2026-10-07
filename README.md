@@ -27,7 +27,7 @@ The sensor UI uses a dark 480x320 instrument layout: a large focused metric on t
 - DS18B20 conversions and MH-Z19 UART responses are acquired asynchronously, so their wait times do not pause touch handling or display updates.
 - Physical sensors are polled by a cooperative round-robin scheduler. Only one sensor transaction runs at a time, and completed transactions are separated by one second to avoid coincident current spikes.
 - Every measurement carries explicit valid/invalid state. Invalid startup readings display a placeholder line, while later invalid or missing samples leave the last valid value on screen.
-- The MH-Z19 startup default of `500 ppm` is ignored until the sensor first reports a valid non-500 reading. After that initialization, `500 ppm` is accepted as a real measurement.
+- MH-Z19 startup readings of `400 ppm` and `500 ppm` are ignored until the sensor first reports another valid in-range value. After that initialization, both values are accepted as real measurements.
 - Battery voltage is sampled every 15 seconds or later, with no sensor activity for at least two seconds before and after the ADC reading.
 - Touch input is sampled cooperatively during long display transfers and sensor waits. Large screen fills are sent in bounded SPI chunks so short taps can be latched while the UI redraws.
 - A thicker green/yellow/red aggregate status line based on the existing humidity, pressure, and CO2 quality thresholds.

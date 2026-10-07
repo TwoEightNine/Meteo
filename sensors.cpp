@@ -427,7 +427,8 @@ AsyncReadStatus SensorsProvider::pollCo2(SensorValue<uint16_t>& ppm) {
             return AsyncReadStatus::Failure;
         }
 
-        if (!co2Initialized && result == 500) {
+        if (!co2Initialized &&
+            (result == SensorOperatingRanges::MHZ19B_CO2_MIN_PPM || result == 500)) {
             return AsyncReadStatus::Failure;
         }
 
