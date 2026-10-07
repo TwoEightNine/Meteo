@@ -19,10 +19,11 @@ constexpr int16_t FOCUS_RIGHT = 278;
 constexpr int16_t DIVIDER_X = 282;
 constexpr int16_t SIDE_X = 288;
 constexpr int16_t SIDE_RIGHT = 474;
-constexpr int16_t STATUS_X = 7;
-constexpr int16_t STATUS_Y = 16;
+constexpr int16_t STATUS_X = 5;
+constexpr int16_t STATUS_Y = 12;
 constexpr int16_t STATUS_W = 394;
-constexpr int16_t STATUS_H = 4;
+constexpr int16_t STATUS_H = 8;
+constexpr int16_t BATTERY_TEXT_Y = 12;
 constexpr int16_t FOCUS_VALUE_X = 22;
 constexpr int16_t FOCUS_VALUE_Y = 101;
 constexpr int16_t FOCUS_VALUE_W = 244;
@@ -33,15 +34,11 @@ constexpr int16_t SIDE_H[4] = {69, 69, 69, 69};
 constexpr uint16_t BACKGROUND = 0x0000;
 constexpr uint16_t SEPARATOR = 0x39CB;
 constexpr uint16_t DIVIDER = 0x05B5;
-constexpr uint16_t MUTED = 0x8C92;
-constexpr uint16_t UNIT_COLOR = 0xC638;
-constexpr uint16_t CYAN = 0x07FF;
-constexpr uint16_t MAGENTA = 0xF81F;
-constexpr uint16_t YELLOW = 0xFFE0;
-constexpr uint16_t PURPLE = 0xA81F;
-constexpr uint16_t TEAL = 0x2FF6;
+constexpr uint16_t RIGHT_TILE = 0x7F5F;
+constexpr uint16_t FOCUS_TILE = 0xFC7D;
+constexpr uint16_t WARNING = 0xFEC9;
+constexpr uint16_t ALERT = 0xFA2B;
 constexpr uint16_t GREEN = 0x07E0;
-constexpr uint16_t RED = 0xF800;
 
 struct SmoothFont {
     const char *chars;
@@ -72,17 +69,6 @@ const SmoothFont FOCUS_UNIT_FONT = {SMOOTH_FOCUS_UNIT_CHARS,
 const SmoothFont SUBSCRIPT_FONT = {SMOOTH_SUBSCRIPT_CHARS,
                                    SMOOTH_SUBSCRIPT_GLYPHS,
                                    SMOOTH_SUBSCRIPT_PIXELS, 0};
-
-uint16_t sensorColor(uint8_t sensorMode) {
-    switch (sensorMode) {
-        case MODE_TEMP_INT: return CYAN;
-        case MODE_TEMP_EXT: return MAGENTA;
-        case MODE_PRESSURE: return YELLOW;
-        case MODE_CO2: return PURPLE;
-        case MODE_HUMIDITY: return TEAL;
-        default: return UNIT_COLOR;
-    }
-}
 
 const __FlashStringHelper *modeLabel(uint8_t value) {
     switch (value) {
@@ -319,7 +305,7 @@ void MainScreen::drawFrame() {
     tft->fillRect(STATUS_X, STATUS_Y, STATUS_W, STATUS_H, SEPARATOR);
     tft->drawFastHLine(STATUS_X, STATUS_Y + STATUS_H, STATUS_W, dim565(SEPARATOR, 64));
     drawSoftVLine(tft, DIVIDER_X, CONTENT_Y,
-                  CONTENT_BOTTOM - CONTENT_Y + 1, CYAN);
+                  CONTENT_BOTTOM - CONTENT_Y + 1, RIGHT_TILE);
 }
 
 void MainScreen::clearText(TextRect& bounds) {
@@ -329,8 +315,8 @@ void MainScreen::clearText(TextRect& bounds) {
     }
 }
 
-void MainScreen::drawLabel(uint8_t sensorMode, int16_t x, int16_t y, bool focus) {
-    uint16_t color = sensorColor(sensorMode);
+void MainScreen::drawLabel(uint8_t sensorMode, int16_t x, int16_t y, bool focus,
+                           uint16_t color) {
     const SmoothFont& font = focus ? TITLE_FONT : LABEL_FONT;
     if (sensorMode == MODE_CO2) {
         TextRect co = drawSmoothText(tft, "CO", x, y, font, color);
@@ -408,8 +394,8 @@ uint16_t MainScreen::unitWidth(uint8_t sensorMode, bool focus) {
     return measureSmoothText(unit, focus ? FOCUS_UNIT_FONT : UNIT_FONT).w;
 }
 
-TextRect MainScreen::drawUnit(uint8_t sensorMode, int16_t x, int16_t y, bool focus) {
-    uint16_t color = sensorColor(sensorMode);
+TextRect MainScreen::drawUnit(uint8_t sensorMode, int16_t x, int16_t y, bool focus,
+                              uint16_t color) {
     const SmoothFont& unitFont = focus ? FOCUS_UNIT_FONT : UNIT_FONT;
     if (sensorMode == MODE_TEMP_INT || sensorMode == MODE_TEMP_EXT) {
         const SmoothFont& degreeFont = focus ? LABEL_FONT : SUBSCRIPT_FONT;
@@ -495,12 +481,12 @@ void MainScreen::drawValue(uint8_t slot, uint8_t sensorMode, bool focus) {
 
     char number[12];
     formatValue(sensorMode, number, sizeof(number));
-    uint16_t color = strcmp(number, "--") == 0 ? MUTED : sensorColor(sensorMode);
+    uint16_t color = tileColor(sensorMode, focus);
 
     if (focus) {
         drawSmoothValue(number, color);
         int16_t unitX = FOCUS_RIGHT - 18 - unitWidth(sensorMode, true);
-        unitBounds[slot] = drawUnit(sensorMode, unitX, 261, true);
+        unitBounds[slot] = drawUnit(sensorMode, unitX, 261, true, color);
         return;
     }
 
@@ -537,7 +523,55 @@ void MainScreen::drawValue(uint8_t slot, uint8_t sensorMode, bool focus) {
                                               UNIT_FONT);
     int16_t unitY = numberY + measured.h - unitMetrics.h;
     unitBounds[slot] = drawUnit(sensorMode, numberX + measured.w + 5,
-                                unitY, false);
+                                unitY, false, color);
+}
+
+uint16_t MainScreen::tileColor(uint8_t sensorMode, bool focus) const {
+    if (focus) {
+        return FOCUS_TILE;
+    }
+
+    uint16_t value;
+    uint16_t warnMin;
+    uint16_t urgentMin;
+    uint16_t warnMax;
+    uint16_t urgentMax;
+    switch (sensorMode) {
+        case MODE_HUMIDITY:
+            if (!actualSensors.humidity.valid) return RIGHT_TILE;
+            value = actualSensors.humidity.value;
+            warnMin = HUM_WARN_MIN_PERCENT;
+            urgentMin = HUM_URGENT_MIN_PERCENT;
+            warnMax = HUM_WARN_MAX_PERCENT;
+            urgentMax = HUM_URGENT_MAX_PERCENT;
+            break;
+        case MODE_PRESSURE:
+            if (!actualSensors.pressureMmHg.valid) return RIGHT_TILE;
+            value = actualSensors.pressureMmHg.value;
+            warnMin = PRES_WARN_MIN_MMHG;
+            urgentMin = PRES_URGENT_MIN_MMHG;
+            warnMax = PRES_WARN_MAX_MMHG;
+            urgentMax = PRES_URGENT_MAX_MMHG;
+            break;
+        case MODE_CO2:
+            if (!actualSensors.co2ppm.valid) return RIGHT_TILE;
+            value = actualSensors.co2ppm.value;
+            warnMin = CO2_WARN_MIN_PPM;
+            urgentMin = CO2_URGENT_MIN_PPM;
+            warnMax = CO2_WARN_MAX_PPM;
+            urgentMax = CO2_URGENT_MAX_PPM;
+            break;
+        default:
+            return RIGHT_TILE;
+    }
+
+    if (value <= urgentMin || value >= urgentMax) {
+        return ALERT;
+    }
+    if (value <= warnMin || value >= warnMax) {
+        return WARNING;
+    }
+    return RIGHT_TILE;
 }
 
 void MainScreen::drawFocusPanel(bool fullPanel) {
@@ -546,11 +580,11 @@ void MainScreen::drawFocusPanel(bool fullPanel) {
                       BACKGROUND);
         valueBounds[0] = {};
         unitBounds[0] = {};
-        uint16_t color = sensorColor(mode);
+        uint16_t color = tileColor(mode, true);
         drawFocusBorder(tft, color);
         drawSoftVLine(tft, DIVIDER_X, CONTENT_Y,
-                      CONTENT_BOTTOM - CONTENT_Y + 1, CYAN);
-        drawLabel(mode, 20, 56, true);
+                      CONTENT_BOTTOM - CONTENT_Y + 1, RIGHT_TILE);
+        drawLabel(mode, 20, 56, true, color);
     }
     drawValue(0, mode, true);
 }
@@ -563,9 +597,9 @@ void MainScreen::drawSidePanel(uint8_t row, bool fullPanel) {
                       SIDE_H[row] + 4, BACKGROUND);
         valueBounds[row + 1] = {};
         unitBounds[row + 1] = {};
-        uint16_t color = sensorColor(sensorMode);
+        uint16_t color = tileColor(sensorMode, false);
         drawSideBorder(tft, row, color);
-        drawLabel(sensorMode, SIDE_X + 16, rowY + 7, false);
+        drawLabel(sensorMode, SIDE_X + 16, rowY + 7, false, color);
     }
     drawValue(row + 1, sensorMode, false);
 }
@@ -616,16 +650,17 @@ void MainScreen::drawBattery() {
         TextRect percentSize = measureSmoothText("%", LABEL_FONT);
         uint16_t lineWidth = measureSmoothText("--", LABEL_FONT).w;
         int16_t labelX = 477 - percentSize.w - 1 - lineWidth;
-        int16_t lineY = 10 + percentSize.h / 2;
+        int16_t lineY = BATTERY_TEXT_Y + percentSize.h / 2;
         drawSoftHLine(tft, labelX, lineY, lineWidth, GREEN);
-        drawSmoothText(tft, "%", labelX + lineWidth + 1, 10,
+        drawSmoothText(tft, "%", labelX + lineWidth + 1, BATTERY_TEXT_Y,
                        LABEL_FONT, GREEN);
         return;
     } else {
         snprintf(label, sizeof(label), "%d%%", (int) percent);
     }
     TextRect size = measureSmoothText(label, LABEL_FONT);
-    drawSmoothText(tft, label, 477 - size.w, 10, LABEL_FONT, GREEN);
+    drawSmoothText(tft, label, 477 - size.w, BATTERY_TEXT_Y,
+                   LABEL_FONT, GREEN);
 }
 
 bool MainScreen::deadlineReached(uint32_t now, uint32_t deadline) const {
@@ -703,7 +738,10 @@ void MainScreen::renderCompletedTask(SensorTask task, const Sensors& previous) {
     }
     for (uint8_t row = 0; row < 4; ++row) {
         if (sensorChanged(sideModes[row], previous)) {
-            drawSidePanel(row, false);
+            bool hasStatusHighlight = sideModes[row] == MODE_HUMIDITY ||
+                                      sideModes[row] == MODE_PRESSURE ||
+                                      sideModes[row] == MODE_CO2;
+            drawSidePanel(row, hasStatusHighlight);
         }
     }
 }
@@ -950,7 +988,7 @@ void MainScreen::updateQuality() {
     }
     renderedQuality = quality;
     uint16_t color = quality >= QUALITY_GOOD ? GREEN :
-                     quality == QUALITY_AVG ? YELLOW : RED;
+                     quality == QUALITY_AVG ? WARNING : ALERT;
     tft->drawFastHLine(STATUS_X, STATUS_Y - 1, STATUS_W, dim565(color, 64));
     tft->fillRect(STATUS_X, STATUS_Y, STATUS_W, STATUS_H, color);
     tft->drawFastHLine(STATUS_X, STATUS_Y + STATUS_H, STATUS_W, dim565(color, 64));

@@ -103,11 +103,14 @@ private:
     void drawSidePanel(uint8_t row, bool fullPanel);
     void drawValue(uint8_t slot, uint8_t sensorMode, bool focus);
     TextRect drawSmoothValue(const char *number, uint16_t color);
-    void drawLabel(uint8_t sensorMode, int16_t x, int16_t y, bool focus);
+    void drawLabel(uint8_t sensorMode, int16_t x, int16_t y, bool focus,
+                   uint16_t color);
     void drawBattery();
     void clearText(TextRect& bounds);
     uint16_t unitWidth(uint8_t sensorMode, bool focus);
-    TextRect drawUnit(uint8_t sensorMode, int16_t x, int16_t y, bool focus);
+    TextRect drawUnit(uint8_t sensorMode, int16_t x, int16_t y, bool focus,
+                      uint16_t color);
+    uint16_t tileColor(uint8_t sensorMode, bool focus) const;
     void formatValue(uint8_t sensorMode, char *buffer, size_t bufferSize);
     bool sensorChanged(uint8_t sensorMode, const Sensors& previous) const;
     bool deadlineReached(uint32_t now, uint32_t deadline) const;

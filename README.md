@@ -30,7 +30,8 @@ The sensor UI uses a dark 480x320 instrument layout: a large focused metric on t
 - The MH-Z19 startup default of `500 ppm` is ignored until the sensor first reports a valid non-500 reading. After that initialization, `500 ppm` is accepted as a real measurement.
 - Battery voltage is sampled every 15 seconds or later, with no sensor activity for at least two seconds before and after the ADC reading.
 - Touch input is sampled cooperatively during long display transfers and sensor waits. Large screen fills are sent in bounded SPI chunks so short taps can be latched while the UI redraws.
-- Green/yellow/red status line based on the existing humidity, pressure, and CO2 quality thresholds.
+- A thicker green/yellow/red aggregate status line based on the existing humidity, pressure, and CO2 quality thresholds.
+- Fixed pink focus styling and cyan right-hand tiles, with complete yellow or red tile highlights for pressure, humidity, and CO2 warnings or alerts.
 
 ### Enforced Measurement Ranges
 
@@ -148,7 +149,7 @@ Touch input uses the XPT2046 controller on the display's shared SPI bus, with `T
 
 In sensor mode, the left half initially focuses inside temperature. The four right-hand rows initially show CO2, humidity, pressure, and outside temperature in that order. Tapping CO2, humidity, or pressure shows that metric in the large left panel without changing the right-hand rows. Tapping the temperature row moves that temperature to the large panel and replaces the row with the other temperature source, so inside and outside temperature alternate there. Tapping the large left panel does nothing. Holding a panel does not repeat the selection; the header is display-only.
 
-The display uses whole-degree temperatures, integer humidity, raw CO2 ppm, and integer mmHg pressure. The black instrument layout has a wide chamfered focus panel, four narrower independently bordered metric cards, and a compact battery header. The focused metric's unit is aligned against the right side of the large panel. Every displayed number, label, unit, border, and decorative line uses RGB565 antialiasing. The top status line is green, yellow, or red, with no status text. Colors and panel coordinates are near the top of `main_screen.cpp`.
+The display uses whole-degree temperatures, integer humidity, raw CO2 ppm, and integer mmHg pressure. The black instrument layout has a wide chamfered focus panel, four narrower independently bordered metric cards, and a compact battery header. The focus panel is always pink, while right-hand tiles are cyan by default. A valid pressure, humidity, or CO2 reading changes its complete right-hand tile to yellow at a warning threshold or red at an alert threshold. The focused metric's unit is aligned against the right side of the large panel. Every displayed number, label, unit, border, and decorative line uses RGB565 antialiasing. The thicker top status line remains an aggregate green, yellow, or red indicator with no status text. Colors and panel coordinates are near the top of `main_screen.cpp`.
 
 The four-bit coverage fonts in `smooth_digits.h` and `smooth_text.h` are generated from the repository's `font.otf` and stored in flash, so no font library is needed at runtime. The generator accepts either TTF or OTF input. With Pillow installed, run `python3 tools/generate_smooth_digits.py` to rebuild from `font.otf`, or pass another font path as the first argument. Use `--size 166` to change the focus digit source size. Check the source font's license before distributing its generated bitmap data.
 
