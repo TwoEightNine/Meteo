@@ -1,183 +1,113 @@
 # ESP32-C6 Meteo Touch Station
 
-Arduino meteo station firmware for an ESP32-C6, a 3.5 inch ILI9486 SPI TFT with XPT2046 resistive touch, and indoor climate sensors.
-
-The sensor UI uses a dark 480x320 instrument layout: a large focused metric on the left, four touch-selectable metrics on the right, a thin color-coded status line, and one battery indicator in the top-right corner. There are no physical buttons and no firmware brightness control.
+Touch-controlled indoor climate station firmware for an ESP32-C6 and a 3.5-inch ILI9486 display. The 480x320 dashboard shows indoor and external temperature, humidity, CO2, pressure, and battery state without physical buttons.
 
 ## Features
 
-- ESP32-C6 target board.
-- 480x320 landscape UI for the LCDWiki 3.5 inch RPi display.
-- Incremental display-only startup mode is available with `METEO_DISPLAY_ONLY` in `meteo_config.h`.
-- Nine-point touch calibration is available with `METEO_TOUCH_CALIBRATION` in `meteo_config.h`.
-- Compile-time photo/video demo mode is available with `METEO_DEMO_MODE` in `meteo_config.h` and is enabled by default.
-- ILI9486 TFT over SPI through the project-local display driver.
-- XPT2046 resistive touch over the shared SPI bus supports calibration, or selects the displayed metric in sensor mode.
-- Touch-selectable metrics, all visible at once:
-  - internal temperature
-  - humidity
-  - CO2
-  - external temperature
-  - pressure
-- Always-visible, non-clickable battery percentage.
-- Sensors:
-  - MH-Z19 CO2 sensor
-  - DHT11 temperature and humidity sensor
-  - BMP280 pressure and temperature sensor
-  - optional DS18B20 external temperature sensor
-- DS18B20 conversions and MH-Z19 UART responses are acquired asynchronously, so their wait times do not pause touch handling or display updates.
-- Physical sensors are polled by a cooperative round-robin scheduler. Only one sensor transaction runs at a time, and completed transactions are separated by one second to avoid coincident current spikes.
-- Every measurement carries explicit valid/invalid state. Invalid startup readings display a placeholder line, while later invalid or missing samples leave the last valid value on screen.
-- MH-Z19 startup readings of `400 ppm` and `500 ppm` are ignored until the sensor first reports another valid in-range value. After that initialization, both values are accepted as real measurements.
-- Battery voltage is sampled every 15 seconds or later, with no sensor activity for at least two seconds before and after the ADC reading.
-- Touch input is sampled cooperatively during long display transfers and sensor waits. Large screen fills are sent in bounded SPI chunks so short taps can be latched while the UI redraws.
-- A thicker green/yellow/red aggregate status line based on the existing humidity, pressure, and CO2 quality thresholds.
-- Fixed pink focus styling and cyan right-hand tiles, with complete yellow or red tile highlights for pressure, humidity, and CO2 warnings or alerts.
+- Landscape 480x320 dashboard with XPT2046 resistive touch.
+- Touch-selectable focus metric with all five measurements kept visible.
+- Color-coded humidity, pressure, and CO2 warnings.
+- Cooperative sensor polling that keeps touch input responsive.
+- Last-valid-value retention when a sensor returns an invalid sample.
+- Built-in display test, touch calibration, and photo/video demo modes.
+- Project-local ILI9486 display driver and flash-resident antialiased fonts.
 
-### Enforced Measurement Ranges
-
-Samples outside these inclusive limits are invalid. An invalid sample leaves the last valid value on screen; if there is no previous valid value, the UI keeps its placeholder line.
-
-| Sensor | Metric | Accepted range | Display representation |
-|---|---|---:|---|
-| DHT11, legacy range | Relative humidity | `20–90% RH` | Whole percent |
-| DHT11, legacy range | Temperature | `0–50°C` | Whole degrees after correction |
-| BMP280 | Temperature | `−40–85°C` | Whole degrees after correction |
-| BMP280 | Pressure | `30000–110000 Pa` (`300–1100 hPa`) | Absolute `225–825 mmHg` after conversion |
-| DS18B20 | Temperature | `−55–125°C` | Whole degrees after correction |
-| MH-Z19B, 5000 ppm variant | CO2 | `400–5000 ppm` | Integer ppm |
-
-The limits follow the selected hardware variants' documentation: [Aosong DHT11](https://aosong.com/userfiles/files/media/DHT11%E6%95%B0%E5%AD%97%E6%B8%A9%E6%B9%BF%E5%BA%A6%E4%BC%A0%E6%84%9F%E5%99%A8%E6%A8%A1%E5%9D%97.pdf), [Bosch BMP280](https://www.bosch-sensortec.com/products/environmental-sensors/pressure-sensors/bmp280/), [Analog Devices DS18B20](https://www.analog.com/media/en/technical-documentation/data-sheets/ds18b20.pdf), and [Winsen MH-Z19B](https://www.winsen-sensor.com/d/files/manual/mh-z19b.pdf).
+See [DOCS.md](DOCS.md) for firmware architecture, polling logic, calibration details, thresholds, and troubleshooting.
 
 ## Hardware
 
-### Controller
+| Component | Supported hardware |
+|---|---|
+| Controller | ESP32-C6 development board with ESP32-C6-DevKitC-1-style GPIO availability |
+| Display | LCDWiki 3.5-inch RPi Display, ILI9486, 320x480 native resolution |
+| Touch | XPT2046 resistive controller on the display's shared SPI bus |
+| Humidity and indoor temperature | DHT11 |
+| Pressure and indoor temperature | BMP280 |
+| CO2 | MH-Z19B, 5000 ppm variant |
+| External temperature | DS18B20 (optional) |
+| Battery | Single-cell Li-ion or LiPo through a resistor divider |
 
-- ESP32-C6 development board compatible with ESP32-C6-DevKitC-1 style GPIO availability.
+The display is used in 480x320 landscape orientation. Its backlight is expected to be wired permanently on; the firmware does not provide brightness control.
 
-### Display
+## Default Wiring
 
-- LCDWiki 3.5 inch RPi Display
-- Resolution: 320x480 native, used as 480x320 landscape
-- LCD driver: ILI9486
-- Touch controller: XPT2046
-- Interface: SPI
+Display and touch signals use the right-side breadboard pins. Sensors and battery measurement use the left-side pins.
 
-### Default Wiring
+| Function | ESP32-C6 GPIO |
+|---|---:|
+| TFT SCK / touch SCK | `8` |
+| TFT MOSI / touch MOSI | `19` |
+| Touch TP_SO / SPI MISO | `15` |
+| TFT LCD_CS | `14` |
+| TFT DC / RS | `20` |
+| TFT RST | `18` |
+| Touch TP_CS | `9` |
+| BMP280 SDA | `2` |
+| BMP280 SCL | `1` |
+| DHT11 data | `3` |
+| ESP32-C6 RX from MH-Z19 TX | `4` |
+| ESP32-C6 TX to MH-Z19 RX | `5` |
+| DS18B20 data | `6` |
+| Battery ADC | `0` |
 
-The default wiring is split by board side. Display and touch use only the right-side breadboard pins, while sensors and battery measurement use the left-side breadboard pins.
+The MH-Z19 UART lines are crossed: sensor `TX` connects to GPIO `4` and sensor `RX` connects to GPIO `5`.
 
-| Side | Function | ESP32-C6 pin |
-|---|---|---:|
-| Right | TFT SCK / Touch SCK | `8` |
-| Right | TFT MOSI / Touch MOSI | `19` |
-| Right | Touch TP_SO (SPI MISO) | `15` |
-| Right | TFT LCD_CS | `14` |
-| Right | TFT DC / RS | `20` |
-| Right | TFT RST | `18` |
-| Right | Touch TP_CS | `9` |
-| Left | BMP280 SDA | `2` |
-| Left | BMP280 SCL | `1` |
-| Left | DHT11 data | `3` |
-| Left | ESP32-C6 RX from MH-Z19 TX | `4` |
-| Left | ESP32-C6 TX to MH-Z19 RX | `5` |
-| Left | DS18B20 data | `6` |
-| Left | Battery ADC | `0` |
+### DS18B20 electrical requirements
 
-The default wiring uses left-side GPIO `0`-`6` and right-side GPIO `8`, `9`, `14`, `15`, `18`-`20`. Left-side GPIO `7` and the `TX` and `RX` header pins remain spare. The MH-Z19 UART connections are crossed: sensor `TX` goes to ESP32-C6 GPIO `4` (RX), and sensor `RX` goes to ESP32-C6 GPIO `5` (TX).
+Connect DS18B20 `GND` to `GND`, `VDD` to `3V3`, and `DQ` to GPIO `6`. Add a `4.7k` pull-up resistor between `DQ` and `3V3`.
 
-These sensor GPIO assignments are fixed by the firmware and remain unchanged by asynchronous acquisition.
+Do not pull the data line up to `5V`; ESP32-C6 GPIOs use 3.3 V logic. If the sensor must be powered from `5V`, use appropriate level shifting for its data line. The firmware expects one externally powered DS18B20 and does not support parasite-power mode.
 
-The LCD backlight is expected to be wired permanently on. Brightness control is intentionally removed.
+### Battery measurement
 
-### DS18B20 Wiring
+The default circuit uses a `100k` top resistor from battery positive to GPIO `0` and a `100k` bottom resistor from GPIO `0` to ground. A 4.2 V battery therefore presents about 2.1 V to the ADC. The divider output must never exceed the ESP32-C6 ADC input range.
 
-For DS18B20, connect:
+## Software Requirements
 
-- DS18B20 `GND` to board `GND`
-- DS18B20 `VDD` to `3V3`
-- DS18B20 `DQ` / data to GPIO `6`
-- `4.7k` pull-up resistor from `DQ` / data to `3V3`
+- Arduino IDE with an ESP32 core version that supports ESP32-C6.
+- Adafruit GFX Library.
+- Adafruit BMP280 Library.
+- Adafruit Unified Sensor.
+- XPT2046_Touchscreen.
 
-Do not pull the data line up to `5V`. ESP32-C6 GPIO pins are 3.3 V logic inputs, so a `4.7k` resistor from data to `5V` can make the bus fail and can damage the ESP32-C6 pin.
+DHT11 and DS18B20 communication is implemented by this project; external DHT, OneWire, and DallasTemperature libraries are not required.
 
-For the most reliable simple wiring, power the DS18B20 from `3V3` and pull `DQ` up to `3V3`. If the DS18B20 is powered from `5V`, use a level shifter for `DQ`; a `3.3V` pull-up can be marginal for a sensor running from `5V`.
+## Configuration
 
-If Serial Monitor shows `sensor ds18b20: crc error` with `FF FF FF FF FF FF FF FF FF`, the sensor was detected but did not drive the scratchpad read. Check DS18B20 power, ground, data pin, pull-up to `3V3`, and avoid parasite-power mode. For long cables, try a stronger pull-up such as `2.2k` to `3V3`.
+The operating modes are compile-time options in [`meteo_config.h`](meteo_config.h):
 
-## Battery Measurement
+| Setting | Default | Purpose |
+|---|---:|---|
+| `METEO_DISPLAY_ONLY` | `0` | Draw a display test pattern without touch or sensors. |
+| `METEO_TOUCH_CALIBRATION` | `0` | Run the nine-point touch calibration utility. |
+| `METEO_DEMO_MODE` | `0` | Show stable dashboard values for photos or video while retaining live DS18B20 support. |
 
-The default firmware assumes a single-cell Li-ion or LiPo battery measured on GPIO `0` through a resistor divider:
+Display-only mode takes precedence over touch calibration, and both take precedence over demo mode. With all three settings at `0`, the station uses live sensors normally.
 
-- Top resistor: `100k`
-- Bottom resistor: `100k`
+Demo values and the external-temperature switching threshold are also configurable in `meteo_config.h`. Display pins and touch calibration constants are near the top of [`meteo_touch.ino`](meteo_touch.ino); sensor pins and electrical constants are in [`sensors.h`](sensors.h).
 
-The divider output must never exceed the ESP32-C6 ADC input range. With the default `100k / 100k` divider, a `4.2 V` cell is presented to the ADC as about `2.1 V`.
-The firmware converts the measured ADC voltage back to battery voltage by multiplying it by `2`.
+## Build and Upload
 
-The UI estimates battery percentage linearly from the measured voltage: `3.35 V` is `0%`, `3.90 V` is `100%`, and values outside that range are clamped. The battery icon and percentage appear only in the header.
-At startup the dashboard initially shows placeholders. A placeholder remains until that measurement produces a valid sample; temporary errors after that point retain the last valid value. The first battery reading waits for a two-second quiet period after sensor initialization, and sensor polling remains paused for another two seconds afterward. Later battery readings use the same quiet-window rule and may therefore occur later than their nominal 15-second interval when a sensor transaction is still active.
+1. Clone or download the repository.
+2. Install the libraries listed above in Arduino IDE.
+3. Open `meteo_touch.ino`.
+4. Select an ESP32-C6 board, such as ESP32-C6-DevKitC-1.
+5. Confirm the wiring and configuration values.
+6. Build and upload the sketch.
+7. Open Serial Monitor at `115200` baud to see initialization and sensor diagnostics.
 
-## Software Dependencies
+## Touch Calibration
 
-Install these Arduino libraries before compiling:
+Each physical touch panel should be calibrated before normal use:
 
-- Adafruit BMP280 Library
-- Adafruit Unified Sensor
-- XPT2046_Touchscreen
+1. Set `METEO_TOUCH_CALIBRATION` to `1` in `meteo_config.h`.
+2. Upload the sketch and open Serial Monitor at `115200` baud.
+3. Tap, briefly hold, and release each of the nine displayed targets.
+4. Copy the seven generated `TOUCH_*` definitions into `meteo_touch.ino`.
+5. Set `METEO_TOUCH_CALIBRATION` back to `0` and upload again.
 
-The DHT11 and DS18B20 readers are implemented in the sketch, so the external DHT, OneWire, and DallasTemperature libraries are not required. The DHT11 reader uses bounded timing checks and safely reports no reading when the sensor is disconnected. DS18B20 conversion waits and CRC retries run as a cooperative state machine, while MH-Z19 response bytes are framed and validated incrementally from the UART.
-
-The current build starts in demo mode and requires Adafruit GFX, XPT2046_Touchscreen, and the sensor libraries listed above. Set `METEO_DEMO_MODE` to `0` in `meteo_config.h` to restore normal live sensor operation. Set `METEO_TOUCH_CALIBRATION` to `1` for touch calibration, or `METEO_DISPLAY_ONLY` to `1` for the display-only test screen. Display-only mode takes precedence over touch calibration, and both take precedence over demo behavior.
-
-Demo mode immediately displays `23°C` internal temperature, `45%` humidity, `600 ppm` CO2, `720 mmHg` pressure, and `85%` battery. Touch selection remains active. DHT11, BMP280, MH-Z19, and battery acquisition are not initialized or polled; only the DS18B20 remains live. External temperature also displays the fixed `23°C` internal value while the live DS18B20 reading differs from it by less than `10°C`, or when the sensor is unavailable. A difference of exactly `10°C` or more displays the real external reading.
-
-Open Serial Monitor at `115200` baud during display bring-up. The sketch prints display init steps and touch coordinates; the display-only test mode also prints a heartbeat every 5 seconds.
-
-The LCDWiki RPi-style ILI9486 adapter uses padded 16-bit SPI command transfers. The project-local display driver uses transfer mode `1`, which sends command/data bytes as `00,data`.
-
-Use an Arduino ESP32 core version that supports ESP32-C6.
-
-## Build And Upload
-
-1. Open `meteo_touch.ino` in Arduino IDE.
-2. Select an ESP32-C6 board, such as ESP32-C6-DevKitC-1.
-3. Install the libraries listed above.
-4. Confirm the display wiring in `meteo_touch.ino` and the sensor wiring in `sensors.h`.
-5. Build and upload.
-
-## Touch
-
-Touch input uses the XPT2046 controller on the display's shared SPI bus, with `TP_CS` on GPIO `9` and `TP_SO` on GPIO `15`. Open Serial Monitor at `115200` baud before calibrating. Calibration mode shows nine crosshairs in this order: top-left, top-right, bottom-right, bottom-left, top, right, bottom, left, and center. Tap each crosshair, hold briefly, then release before tapping the next one. After the ninth release, look for the `TOUCH CALIBRATION RESULTS - 9 POINTS` banner in Serial Monitor. The report contains all raw coordinates and pressures, a clearly marked block of seven `TOUCH_*` definitions to copy, and the largest fit error. It repeats every 15 seconds; you can also send `P` in Serial Monitor to print it immediately. Reset the board to repeat the calibration sequence. Keep the same `touch.setRotation(1)` setting when using those definitions.
-
-In sensor mode, the left half initially focuses inside temperature. The four right-hand rows initially show CO2, humidity, pressure, and outside temperature in that order. Tapping CO2, humidity, or pressure shows that metric in the large left panel without changing the right-hand rows. Tapping the temperature row moves that temperature to the large panel and replaces the row with the other temperature source, so inside and outside temperature alternate there. Tapping the large left panel does nothing. Holding a panel does not repeat the selection; the header is display-only.
-
-The display uses whole-degree temperatures, integer humidity, raw CO2 ppm, and integer mmHg pressure. The black instrument layout has a wide chamfered focus panel, four narrower independently bordered metric cards, and a compact battery header. The focus panel is always pink, while right-hand tiles are cyan by default. A valid pressure, humidity, or CO2 reading changes its complete right-hand tile to yellow at a warning threshold or red at an alert threshold. The focused metric's unit is aligned against the right side of the large panel. Every displayed number, label, unit, border, and decorative line uses RGB565 antialiasing. The thicker top status line remains an aggregate green, yellow, or red indicator with no status text. Colors and panel coordinates are near the top of `main_screen.cpp`.
-
-The four-bit coverage fonts in `smooth_digits.h` and `smooth_text.h` are generated from the repository's `font.otf` and stored in flash, so no font library is needed at runtime. The generator accepts either TTF or OTF input. With Pillow installed, run `python3 tools/generate_smooth_digits.py` to rebuild from `font.otf`, or pass another font path as the first argument. Use `--size 166` to change the focus digit source size. Check the source font's license before distributing its generated bitmap data.
-
-Touch calibration constants are defined near the top of `meteo_touch.ino`:
-
-```cpp
-#define TOUCH_MIN_X 300
-#define TOUCH_MAX_X 3900
-#define TOUCH_MIN_Y 300
-#define TOUCH_MAX_Y 3900
-#define TOUCH_SWAP_XY false
-#define TOUCH_INVERT_X true
-#define TOUCH_INVERT_Y false
-```
-
-Replace these definitions with the calibration output, then set `METEO_TOUCH_CALIBRATION` to `0` and upload again. The UI hit boxes are already defined for the 480x320 landscape layout. A large reported fit error can indicate an inaccurate tap, noisy readings, or a panel that needs a more detailed mapping.
-
-`TOUCH_PRESSURE_MIN` filters idle noise from the touch controller. The default `1200` is set above the observed idle pressure (about `1020`); lower it only if intentional presses do not reach that threshold.
+See [Touch calibration](DOCS.md#touch-calibration) for the complete procedure and diagnostics.
 
 ## License
 
-This project is licensed under the GNU General Public License version 3.
-
-GPL-3.0 is a copyleft license. If you distribute modified versions of this firmware, you must provide the corresponding source code under the same license terms.
-
-See the GNU GPL v3 text at:
-
-https://www.gnu.org/licenses/gpl-3.0.en.html
+This project is licensed under the [GNU General Public License version 3](https://www.gnu.org/licenses/gpl-3.0.en.html). Distributed modified versions must provide their corresponding source under the same license terms.
