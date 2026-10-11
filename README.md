@@ -2,6 +2,8 @@
 
 Touch-controlled indoor climate station firmware for an ESP32-C6 and a 3.5-inch ILI9486 display. The 480x320 dashboard shows indoor and external temperature, humidity, CO2, pressure, and battery state without physical buttons.
 
+<img src="photo.jpg" alt="ESP32-C6 Meteo Touch Station" width="600">
+
 ## Features
 
 - Landscape 480x320 dashboard with XPT2046 resistive touch.
