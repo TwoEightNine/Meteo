@@ -65,8 +65,8 @@ private:
         Failure
     };
 
-    Adafruit_BMP280 *bmp;
-    MHZ19_uart *mhz19;
+    Adafruit_BMP280 *bmp = nullptr;
+    MHZ19_uart *mhz19 = nullptr;
     bool bmpReady = false;
     bool co2Initialized = false;
     bool ds18b20BusWasPresent = false;

@@ -9,7 +9,8 @@ The sensor UI uses a dark 480x320 instrument layout: a large focused metric on t
 - ESP32-C6 target board.
 - 480x320 landscape UI for the LCDWiki 3.5 inch RPi display.
 - Incremental display-only startup mode is available with `METEO_DISPLAY_ONLY` in `meteo_config.h`.
-- Nine-point touch calibration is available with `METEO_TOUCH_CALIBRATION` in `meteo_config.h`; normal sensor mode is currently enabled.
+- Nine-point touch calibration is available with `METEO_TOUCH_CALIBRATION` in `meteo_config.h`.
+- Compile-time photo/video demo mode is available with `METEO_DEMO_MODE` in `meteo_config.h` and is enabled by default.
 - ILI9486 TFT over SPI through the project-local display driver.
 - XPT2046 resistive touch over the shared SPI bus supports calibration, or selects the displayed metric in sensor mode.
 - Touch-selectable metrics, all visible at once:
@@ -127,7 +128,9 @@ Install these Arduino libraries before compiling:
 
 The DHT11 and DS18B20 readers are implemented in the sketch, so the external DHT, OneWire, and DallasTemperature libraries are not required. The DHT11 reader uses bounded timing checks and safely reports no reading when the sensor is disconnected. DS18B20 conversion waits and CRC retries run as a cooperative state machine, while MH-Z19 response bytes are framed and validated incrementally from the UART.
 
-The current build starts in sensor mode and requires Adafruit GFX, XPT2046_Touchscreen, and the sensor libraries listed above. Set `METEO_TOUCH_CALIBRATION` to `1` in `meteo_config.h` for touch calibration, or `METEO_DISPLAY_ONLY` to `1` for the display-only test screen; display-only mode takes precedence.
+The current build starts in demo mode and requires Adafruit GFX, XPT2046_Touchscreen, and the sensor libraries listed above. Set `METEO_DEMO_MODE` to `0` in `meteo_config.h` to restore normal live sensor operation. Set `METEO_TOUCH_CALIBRATION` to `1` for touch calibration, or `METEO_DISPLAY_ONLY` to `1` for the display-only test screen. Display-only mode takes precedence over touch calibration, and both take precedence over demo behavior.
+
+Demo mode immediately displays `23°C` internal temperature, `45%` humidity, `600 ppm` CO2, `720 mmHg` pressure, and `85%` battery. Touch selection remains active. DHT11, BMP280, MH-Z19, and battery acquisition are not initialized or polled; only the DS18B20 remains live. External temperature also displays the fixed `23°C` internal value while the live DS18B20 reading differs from it by less than `10°C`, or when the sensor is unavailable. A difference of exactly `10°C` or more displays the real external reading.
 
 Open Serial Monitor at `115200` baud during display bring-up. The sketch prints display init steps and touch coordinates; the display-only test mode also prints a heartbeat every 5 seconds.
 

@@ -92,6 +92,9 @@ private:
     uint32_t lastBatteryPollAt = 0;
     bool batteryPollCompleted = false;
     bool batteryQuietWaitLogged = false;
+#if METEO_DEMO_MODE
+    bool demoExternalUsingLive = false;
+#endif
 
     TextRect valueBounds[5] = {};
     TextRect unitBounds[5] = {};
@@ -121,6 +124,9 @@ private:
     bool qualityInputsReady() const;
     void renderCompletedTask(SensorTask task, const Sensors& previous);
     void completeSensorTask(SensorTask task, const Sensors& previous);
+#if METEO_DEMO_MODE
+    void applyDemoExternalTemperature(const SensorValue<int8_t>& temperature);
+#endif
     void startSensorTask(SensorTask task);
     bool pollActiveSensorTask();
     bool pollBatteryIfDue(uint32_t now);

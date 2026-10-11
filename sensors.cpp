@@ -29,6 +29,9 @@ bool isWithinInclusive(T value, T minimum, T maximum) {
 }
 
 SensorsProvider::SensorsProvider() {
+#if METEO_DEMO_MODE
+    Serial.println(F("sensor demo: external temperature only"));
+#else
     // The DHT11 data pin is idle high.  INPUT_PULLUP also makes an absent
     // sensor deterministic rather than leaving GPIO3 floating.
     pinMode(PIN_DHT, INPUT_PULLUP);
@@ -52,6 +55,7 @@ SensorsProvider::SensorsProvider() {
     } else {
         Serial.println(F("sensor bmp280: not found"));
     }
+#endif
 
     Serial.print(F("sensor ds18b20: pin "));
     Serial.println(PIN_D18B20);
@@ -61,6 +65,7 @@ SensorsProvider::SensorsProvider() {
         Serial.println(F("sensor ds18b20: bus low at startup"));
     }
 
+#if !METEO_DEMO_MODE
     mhz19 = new MHZ19_uart();
     mhz19->begin(PIN_MHZ_RX, PIN_MHZ_TX);
     mhz19->setAutoCalibration(false);
@@ -68,6 +73,7 @@ SensorsProvider::SensorsProvider() {
 #ifdef ARDUINO_ARCH_ESP32
     analogReadResolution(12);
     analogSetPinAttenuation(PIN_BATTERY_ADC, ADC_11db);
+#endif
 #endif
 }
 

@@ -285,7 +285,27 @@ bool sensorValueChanged(const SensorValue<T>& current,
 MainScreen::MainScreen(SensorsProvider *sensorsProvider, MeteoDisplay *tft)
     : sensorsProvider(sensorsProvider), tft(tft) {
     tft->setTextWrap(false);
+#if METEO_DEMO_MODE
+    actualSensors.temperatureInternal.value = METEO_DEMO_TEMPERATURE_INTERNAL_C;
+    actualSensors.temperatureInternal.valid = true;
+    actualSensors.humidity.value = METEO_DEMO_HUMIDITY_PERCENT;
+    actualSensors.humidity.valid = true;
+    actualSensors.co2ppm.value = METEO_DEMO_CO2_PPM;
+    actualSensors.co2ppm.valid = true;
+    actualSensors.pressureMmHg.value = METEO_DEMO_PRESSURE_MMHG;
+    actualSensors.pressureMmHg.valid = true;
+    actualSensors.temperatureExternal.value =
+        METEO_DEMO_TEMPERATURE_INTERNAL_C;
+    actualSensors.temperatureExternal.valid = true;
+    quality = calculateQuality(actualSensors);
+    Serial.println(F("demo: enabled"));
+    Serial.print(F("demo external-temp source=internal value="));
+    Serial.println(METEO_DEMO_TEMPERATURE_INTERNAL_C);
+#endif
     drawFrame();
+#if METEO_DEMO_MODE
+    updateQuality();
+#endif
     drawBattery();
     drawFocusPanel(true);
     for (uint8_t row = 0; row < 4; ++row) {
@@ -625,11 +645,15 @@ bool MainScreen::sensorChanged(uint8_t sensorMode, const Sensors& previous) cons
 }
 
 void MainScreen::drawBattery() {
+#if METEO_DEMO_MODE
+    int16_t percent = METEO_DEMO_BATTERY_PERCENT;
+#else
     const uint16_t millivolts = actualSensors.batteryMilliVolts.value;
     int16_t percent = !actualSensors.batteryMilliVolts.valid ? -1 :
                       millivolts <= 3350 ? 0 :
                       millivolts >= 3900 ? 100 :
                       ((uint32_t) (millivolts - 3350) * 100 + 275) / 550;
+#endif
     if (percent == renderedBatteryPercent) {
         return;
     }
@@ -696,6 +720,11 @@ bool MainScreen::taskDue(SensorTask task, uint32_t now) const {
     if (index >= SENSOR_TASK_COUNT) {
         return false;
     }
+#if METEO_DEMO_MODE
+    if (task != SensorTask::ExternalTemperature) {
+        return false;
+    }
+#endif
     return !sensorPollCompleted[index] ||
            (uint32_t) (now - lastSensorPollAt[index]) >= taskInterval(task);
 }
@@ -759,6 +788,46 @@ void MainScreen::completeSensorTask(SensorTask task, const Sensors& previous) {
     renderCompletedTask(task, previous);
 }
 
+#if METEO_DEMO_MODE
+void MainScreen::applyDemoExternalTemperature(
+        const SensorValue<int8_t>& temperature) {
+    int8_t displayedValue = METEO_DEMO_TEMPERATURE_INTERNAL_C;
+    bool useLive = false;
+    int16_t difference = 0;
+
+    if (temperature.valid) {
+        difference = (int16_t) temperature.value -
+                     METEO_DEMO_TEMPERATURE_INTERNAL_C;
+        if (difference <= -METEO_DEMO_EXTERNAL_LIVE_THRESHOLD_C ||
+            difference >= METEO_DEMO_EXTERNAL_LIVE_THRESHOLD_C) {
+            displayedValue = temperature.value;
+            useLive = true;
+        }
+    }
+
+    bool sourceChanged = useLive != demoExternalUsingLive;
+    bool valueChanged =
+        actualSensors.temperatureExternal.value != displayedValue;
+    actualSensors.temperatureExternal.value = displayedValue;
+    actualSensors.temperatureExternal.valid = true;
+
+    if (sourceChanged || valueChanged) {
+        demoExternalUsingLive = useLive;
+        Serial.print(F("demo external-temp source="));
+        Serial.print(useLive ? F("live") : F("internal"));
+        Serial.print(F(" value="));
+        Serial.print(displayedValue);
+        if (temperature.valid) {
+            Serial.print(F(" difference="));
+            Serial.print(difference < 0 ? -difference : difference);
+        } else {
+            Serial.print(F(" sensor=unavailable"));
+        }
+        Serial.println();
+    }
+}
+#endif
+
 void MainScreen::startSensorTask(SensorTask task) {
     Sensors previous = actualSensors;
     activeSensorTask = task;
@@ -790,6 +859,11 @@ void MainScreen::startSensorTask(SensorTask task) {
                 activeSensorTask = SensorTask::None;
                 sensorStartAllowedAt = millis() + SENSOR_POLL_GAP_MS;
                 logTaskEvent(task, F("start-rejected"));
+#if METEO_DEMO_MODE
+                SensorValue<int8_t> unavailable;
+                applyDemoExternalTemperature(unavailable);
+                renderCompletedTask(task, previous);
+#endif
             }
             return;
         case SensorTask::Co2:
@@ -812,14 +886,17 @@ bool MainScreen::pollActiveSensorTask() {
 
     Sensors previous = actualSensors;
     AsyncReadStatus status = AsyncReadStatus::Idle;
+    SensorValue<int8_t> externalTemperature;
     if (activeSensorTask == SensorTask::ExternalTemperature) {
-        SensorValue<int8_t> temperature;
-        status = sensorsProvider->pollExternalTemperature(temperature);
-        if (status == AsyncReadStatus::Success && temperature.valid) {
-            retainValidValue(actualSensors.temperatureExternal, temperature);
+        status = sensorsProvider->pollExternalTemperature(externalTemperature);
+#if !METEO_DEMO_MODE
+        if (status == AsyncReadStatus::Success && externalTemperature.valid) {
+            retainValidValue(actualSensors.temperatureExternal,
+                             externalTemperature);
             Serial.print(F("sensor external-temp value="));
-            Serial.println(temperature.value);
+            Serial.println(externalTemperature.value);
         }
+#endif
     } else if (activeSensorTask == SensorTask::Co2) {
         SensorValue<uint16_t> ppm;
         status = sensorsProvider->pollCo2(ppm);
@@ -836,20 +913,48 @@ bool MainScreen::pollActiveSensorTask() {
     }
 
     SensorTask completedTask = activeSensorTask;
+#if METEO_DEMO_MODE
+    if (completedTask == SensorTask::ExternalTemperature) {
+        if (status != AsyncReadStatus::Success) {
+            externalTemperature.valid = false;
+        }
+        applyDemoExternalTemperature(externalTemperature);
+    }
+#endif
     if (status == AsyncReadStatus::Failure) {
         Serial.print(F("sensor "));
         Serial.print(taskName(completedTask));
+#if METEO_DEMO_MODE
+        if (completedTask == SensorTask::ExternalTemperature) {
+            Serial.println(F(" failed; using demo internal temperature"));
+        } else {
+            Serial.println(F(" failed; keeping last value"));
+        }
+#else
         Serial.println(F(" failed; keeping last value"));
+#endif
     } else if (status == AsyncReadStatus::Idle) {
         Serial.print(F("sensor "));
         Serial.print(taskName(completedTask));
+#if METEO_DEMO_MODE
+        if (completedTask == SensorTask::ExternalTemperature) {
+            Serial.println(F(" ended unexpectedly; using demo internal temperature"));
+        } else {
+            Serial.println(F(" ended unexpectedly; keeping last value"));
+        }
+#else
         Serial.println(F(" ended unexpectedly; keeping last value"));
+#endif
     }
     completeSensorTask(completedTask, previous);
     return true;
 }
 
 bool MainScreen::pollBatteryIfDue(uint32_t now) {
+#if METEO_DEMO_MODE
+    (void) now;
+    return false;
+#else
     bool batteryDue = !batteryPollCompleted ||
         (uint32_t) (now - lastBatteryPollAt) >= BATTERY_POLL_INTERVAL_MS;
     if (!batteryDue) {
@@ -889,6 +994,7 @@ bool MainScreen::pollBatteryIfDue(uint32_t now) {
     }
     drawBattery();
     return true;
+#endif
 }
 
 SensorTask MainScreen::nextDueSensorTask(uint32_t now) {
